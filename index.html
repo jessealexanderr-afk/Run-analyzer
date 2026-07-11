@@ -1,0 +1,1077 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Run Analyzer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=UnifrakturMaguntia&family=IM+Fell+English:ital@0;1&family=IM+Fell+English+SC&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0a0908; --panel:#161009; --panel2:#1e150c; --border:#4a3220; --grid:#4a221c;
+    --text:#e6d3a3; --sub:#a9895f; --accent:#c9a24c; --accent2:#8a9296;
+    --good:#7a9b6e; --warn:#c9a227; --bad:#9b3a2c;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0; font-family:'IM Fell English', Georgia, 'Times New Roman', serif;
+    background:
+      repeating-linear-gradient(0deg, transparent 0 39px, var(--grid) 39px 40px),
+      repeating-linear-gradient(90deg, transparent 0 39px, var(--grid) 39px 40px),
+      var(--bg);
+    color:var(--text); padding:24px 16px 60px; position:relative;
+  }
+  body::before{
+    content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
+    background:radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,.6) 100%);
+  }
+  .wrap{max-width:1100px; margin:0 auto; position:relative; z-index:1;}
+  h1{
+    font-family:'UnifrakturMaguntia', 'IM Fell English', serif; font-weight:400;
+    font-size:42px; margin:0 0 8px; letter-spacing:.02em; text-align:center;
+    text-shadow:0 0 14px rgba(230,211,163,.18);
+  }
+  .sub{color:var(--sub); font-size:14px; margin-bottom:24px; font-style:italic;}
+  h1 + .sub{text-align:center;}
+  .card{
+    background:var(--panel); border:1px solid var(--border); border-radius:2px;
+    padding:20px; margin-bottom:20px; box-shadow:inset 0 0 0 1px rgba(230,211,163,.04), 0 3px 10px rgba(0,0,0,.5);
+  }
+  .row{display:flex; gap:16px; flex-wrap:wrap; align-items:center;}
+  .drop{
+    border:2px dashed var(--border); border-radius:2px; padding:32px;
+    text-align:center; cursor:pointer; transition:border-color .15s, background .15s;
+  }
+  .drop:hover, .drop.drag{border-color:var(--accent); background:#20160c;}
+  .drop input{display:none;}
+  .drop .big{font-size:16px; margin-bottom:6px; font-family:'IM Fell English SC','IM Fell English',serif; letter-spacing:.03em;}
+  .drop .small{color:var(--sub); font-size:13px;}
+  button{
+    background:linear-gradient(180deg,#c9a24c,#93711f); color:#160f08; border:1px solid #5a3f1f; border-radius:2px;
+    padding:9px 16px; font-weight:700; font-size:13px; cursor:pointer;
+    font-family:'IM Fell English SC','IM Fell English',serif; letter-spacing:.04em; text-transform:uppercase;
+  }
+  button.ghost{background:transparent; color:var(--text); border:1px solid var(--border);}
+  button.small{padding:5px 10px; font-size:12px;}
+  input[type=number], select{
+    background:var(--panel2); border:1px solid var(--border); color:var(--text);
+    border-radius:2px; padding:7px 10px; font-size:13px; font-family:'Courier Prime', monospace;
+  }
+  label{font-size:13px; color:var(--sub); font-style:italic;}
+  .settings{display:flex; gap:20px; flex-wrap:wrap; align-items:flex-end;}
+  .settings .field{display:flex; flex-direction:column; gap:4px;}
+  table{width:100%; border-collapse:collapse; font-size:13px; font-family:'Courier Prime', monospace;}
+  th, td{padding:8px 10px; text-align:left; border-bottom:1px solid var(--border);}
+  th{color:var(--sub); font-weight:700; font-size:12px; text-transform:uppercase; letter-spacing:.03em; font-family:'IM Fell English SC','IM Fell English',serif;}
+  tr.clickable{cursor:pointer;}
+  tr.clickable:hover{background:var(--panel2);}
+  .stat-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); gap:14px; margin:14px 0;}
+  .stat{background:var(--panel2); border:1px solid var(--border); border-radius:2px; padding:12px;}
+  .stat .label{font-size:11px; color:var(--sub); text-transform:uppercase; letter-spacing:.04em; font-family:'IM Fell English SC','IM Fell English',serif;}
+  .stat .value{font-size:20px; font-weight:700; margin-top:4px; font-family:'Courier Prime', monospace;}
+  .stat .unit{font-size:12px; color:var(--sub); font-weight:400;}
+  .badge{
+    display:inline-block; padding:2px 8px; border-radius:2px; font-size:11px; font-weight:700;
+    text-transform:uppercase; letter-spacing:.03em;
+  }
+  .badge.good{background:rgba(122,155,110,.15); color:var(--good);}
+  .badge.warn{background:rgba(201,162,39,.15); color:var(--warn);}
+  .badge.bad{background:rgba(155,58,44,.18); color:var(--bad);}
+  .insights{list-style:none; padding:0; margin:0;}
+  .insights li{
+    display:flex; gap:10px; padding:10px 0; border-bottom:1px solid var(--border); font-size:14px; line-height:1.5;
+  }
+  .insights li:last-child{border-bottom:none;}
+  .insights li .dot{
+    flex-shrink:0; width:8px; height:8px; border-radius:50%; margin-top:6px;
+  }
+  .dot.good{background:var(--good);} .dot.warn{background:var(--warn);} .dot.bad{background:var(--bad);} .dot.info{background:var(--accent2);}
+  .tabs{display:flex; gap:6px; margin-bottom:16px;}
+  .tab{
+    padding:8px 14px; border-radius:2px; font-size:13px; cursor:pointer; color:var(--sub); font-weight:700;
+    font-family:'IM Fell English SC','IM Fell English',serif; letter-spacing:.03em;
+  }
+  .tab.active{background:var(--panel2); color:var(--text); border:1px solid var(--border);}
+  .hidden{display:none !important;}
+  .chart-box{position:relative; height:260px; margin-top:10px;}
+  .run-title{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;}
+  .run-title h2{margin:0; font-size:19px; font-family:'IM Fell English SC','IM Fell English',serif; font-weight:400; letter-spacing:.03em;}
+  .empty{color:var(--sub); font-size:14px; text-align:center; padding:30px 0; font-style:italic;}
+  .split-bar{height:6px; border-radius:0; background:var(--accent);}
+  .two-col{display:grid; grid-template-columns:1fr 1fr; gap:20px;}
+  @media (max-width:720px){.two-col{grid-template-columns:1fr;}}
+  a.linklike{color:var(--accent2); cursor:pointer; text-decoration:none; font-size:13px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Run Analyzer</h1>
+  <div class="sub">Upload GPX or TCX files from Garmin, Strava, Apple Watch, or any GPS watch to get detailed per-run breakdowns and trends over time.</div>
+
+  <div class="card">
+    <div class="drop" id="dropZone">
+      <div class="big">Drop GPX / TCX files here, or click to choose</div>
+      <div class="small">Also accepts a Strava bulk-export .zip &middot; multiple files supported &middot; nothing is uploaded anywhere, all parsing happens in your browser</div>
+      <input type="file" id="fileInput" multiple accept=".gpx,.tcx,.zip,application/gpx+xml,text/xml,application/xml,application/zip">
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="settings">
+      <div class="field">
+        <label>Units</label>
+        <select id="unitSelect">
+          <option value="km">Kilometers</option>
+          <option value="mi">Miles</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Max heart rate (for zones, optional)</label>
+        <input type="number" id="maxHrInput" placeholder="e.g. 190" min="120" max="230">
+      </div>
+      <div class="field" style="min-width:260px;">
+        <label>Anthropic API key (optional, for AI coaching notes)</label>
+        <input type="password" id="apiKeyInput" placeholder="sk-ant-...">
+      </div>
+      <div class="field">
+        <label>&nbsp;</label>
+        <button class="ghost small" id="clearAllBtn">Clear all runs</button>
+      </div>
+    </div>
+    <div class="sub" style="margin:10px 0 0; font-size:12px;">
+      Your key is stored only in this browser (localStorage) and calls Anthropic's API directly from your device &mdash; it never touches any server of mine. Each coaching note costs a fraction of a cent. Get a key at <span style="font-family:'Courier Prime',monospace;">console.anthropic.com</span>.
+    </div>
+  </div>
+
+  <div id="mainTabs" class="tabs hidden">
+    <div class="tab active" data-tab="trends">Trends</div>
+    <div class="tab" data-tab="detail">Run Detail</div>
+  </div>
+
+  <div id="trendsPanel" class="hidden">
+    <div class="card">
+      <div class="run-title"><h2>All runs</h2><span class="sub" id="runCount"></span></div>
+      <div style="overflow-x:auto;">
+        <table id="runsTable">
+          <thead><tr><th>Date</th><th>Distance</th><th>Duration</th><th>Pace</th><th>Avg HR</th><th>Elev gain</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="two-col">
+      <div class="card">
+        <div class="run-title"><h2>Pace over time</h2></div>
+        <div class="chart-box"><canvas id="paceChart"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="run-title"><h2>Weekly distance</h2></div>
+        <div class="chart-box"><canvas id="mileageChart"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="run-title"><h2>Avg heart rate over time</h2></div>
+        <div class="chart-box"><canvas id="hrChart"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="run-title"><h2>Aerobic decoupling over time</h2></div>
+        <div class="chart-box"><canvas id="decoupleChart"></canvas></div>
+      </div>
+    </div>
+    <div class="card" id="trendInsightsCard">
+      <div class="run-title"><h2>Training signals</h2></div>
+      <ul class="insights" id="trendInsights"></ul>
+    </div>
+  </div>
+
+  <div id="detailPanel" class="hidden"></div>
+
+  <div id="emptyState" class="empty">No runs loaded yet. Upload a GPX or TCX file above to get started.</div>
+</div>
+
+<script>
+(function(){
+  const STORAGE_KEY = 'runAnalyzer.runs.v1';
+  const SETTINGS_KEY = 'runAnalyzer.settings.v1';
+  let runs = [];
+  let settings = { units: 'km', maxHr: null, apiKey: null };
+  let activeRunId = null;
+  let charts = {};
+
+  // ---------- persistence ----------
+  function loadState(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(raw) runs = JSON.parse(raw);
+    }catch(e){ runs = []; }
+    try{
+      const rawS = localStorage.getItem(SETTINGS_KEY);
+      if(rawS) settings = Object.assign(settings, JSON.parse(rawS));
+    }catch(e){}
+  }
+  function saveRuns(){
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(runs)); }catch(e){}
+  }
+  function saveSettings(){
+    try{ localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }catch(e){}
+  }
+
+  // ---------- XML helpers ----------
+  function findByLocalName(parent, name){
+    const all = parent.getElementsByTagName('*');
+    for(let i=0;i<all.length;i++){
+      if(all[i].localName && all[i].localName.toLowerCase() === name.toLowerCase()) return all[i];
+    }
+    return null;
+  }
+  function findAllByLocalName(parent, name){
+    const all = parent.getElementsByTagName('*');
+    const out = [];
+    for(let i=0;i<all.length;i++){
+      if(all[i].localName && all[i].localName.toLowerCase() === name.toLowerCase()) out.push(all[i]);
+    }
+    return out;
+  }
+  function num(v){ const n = parseFloat(v); return isNaN(n) ? null : n; }
+
+  // ---------- parsers ----------
+  function parseGPX(xml){
+    const trkpts = findAllByLocalName(xml, 'trkpt');
+    const points = [];
+    for(const tp of trkpts){
+      const lat = num(tp.getAttribute('lat'));
+      const lon = num(tp.getAttribute('lon'));
+      const eleEl = findByLocalName(tp, 'ele');
+      const timeEl = findByLocalName(tp, 'time');
+      const hrEl = findByLocalName(tp, 'hr');
+      const cadEl = findByLocalName(tp, 'cad');
+      if(lat === null || lon === null || !timeEl) continue;
+      points.push({
+        t: new Date(timeEl.textContent.trim()).getTime(),
+        lat, lon,
+        ele: eleEl ? num(eleEl.textContent) : null,
+        hr: hrEl ? num(hrEl.textContent) : null,
+        cad: cadEl ? num(cadEl.textContent) : null,
+        distCum: null
+      });
+    }
+    return points;
+  }
+
+  function parseTCX(xml){
+    const trkpts = findAllByLocalName(xml, 'Trackpoint');
+    const points = [];
+    for(const tp of trkpts){
+      const timeEl = findByLocalName(tp, 'Time');
+      const posEl = findByLocalName(tp, 'Position');
+      let lat = null, lon = null;
+      if(posEl){
+        const latEl = findByLocalName(posEl, 'LatitudeDegrees');
+        const lonEl = findByLocalName(posEl, 'LongitudeDegrees');
+        lat = latEl ? num(latEl.textContent) : null;
+        lon = lonEl ? num(lonEl.textContent) : null;
+      }
+      const eleEl = findByLocalName(tp, 'AltitudeMeters');
+      const distEl = findByLocalName(tp, 'DistanceMeters');
+      const hrParent = findByLocalName(tp, 'HeartRateBpm');
+      const hrVal = hrParent ? findByLocalName(hrParent, 'Value') : null;
+      const cadEl = findByLocalName(tp, 'RunCadence') || findByLocalName(tp, 'Cadence');
+      if(!timeEl) continue;
+      points.push({
+        t: new Date(timeEl.textContent.trim()).getTime(),
+        lat: lat, lon: lon,
+        ele: eleEl ? num(eleEl.textContent) : null,
+        hr: hrVal ? num(hrVal.textContent) : null,
+        cad: cadEl ? num(cadEl.textContent) : null,
+        distCum: distEl ? num(distEl.textContent) : null
+      });
+    }
+    return points;
+  }
+
+  function haversine(lat1, lon1, lat2, lon2){
+    const R = 6371000;
+    const toRad = d => d * Math.PI / 180;
+    const dLat = toRad(lat2-lat1), dLon = toRad(lon2-lon1);
+    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  }
+
+  // ---------- stats ----------
+  function smooth(arr, windowSize){
+    const out = new Array(arr.length).fill(null);
+    for(let i=0;i<arr.length;i++){
+      let sum=0, cnt=0;
+      for(let j=Math.max(0,i-windowSize); j<=Math.min(arr.length-1,i+windowSize); j++){
+        if(arr[j]!=null){ sum+=arr[j]; cnt++; }
+      }
+      out[i] = cnt ? sum/cnt : null;
+    }
+    return out;
+  }
+
+  function computeStats(points){
+    points = points.filter(p => p.t && !isNaN(p.t)).sort((a,b)=>a.t-b.t);
+    if(points.length < 2) return null;
+
+    // cumulative distance
+    let cum = 0;
+    const hasDistField = points.some(p => p.distCum != null);
+    const distArr = [0];
+    for(let i=1;i<points.length;i++){
+      let d;
+      if(hasDistField && points[i].distCum!=null && points[i-1].distCum!=null){
+        d = Math.max(0, points[i].distCum - points[i-1].distCum);
+      } else if(points[i].lat!=null && points[i].lon!=null && points[i-1].lat!=null && points[i-1].lon!=null){
+        d = haversine(points[i-1].lat, points[i-1].lon, points[i].lat, points[i].lon);
+        // ignore GPS noise spikes: cap unrealistic jumps (>15 m/s)
+        const dt = (points[i].t - points[i-1].t)/1000;
+        if(dt > 0 && d/dt > 15) d = 0;
+      } else {
+        d = 0;
+      }
+      cum += d;
+      distArr.push(cum);
+    }
+    const totalDist = cum; // meters
+    const totalDuration = (points[points.length-1].t - points[0].t)/1000; // seconds
+    if(totalDist < 50 || totalDuration < 30) return null;
+
+    // elevation gain/loss (smoothed)
+    const eleRaw = points.map(p=>p.ele);
+    const eleSm = smooth(eleRaw, 3);
+    let gain=0, loss=0;
+    for(let i=1;i<eleSm.length;i++){
+      if(eleSm[i]==null || eleSm[i-1]==null) continue;
+      const d = eleSm[i]-eleSm[i-1];
+      if(d > 0.3) gain += d;
+      else if(d < -0.3) loss += -d;
+    }
+
+    // heart rate
+    const hrVals = points.map(p=>p.hr).filter(v=>v!=null);
+    const avgHr = hrVals.length ? hrVals.reduce((a,b)=>a+b,0)/hrVals.length : null;
+    const maxHr = hrVals.length ? Math.max(...hrVals) : null;
+
+    // cadence
+    const cadVals = points.map(p=>p.cad).filter(v=>v!=null && v>0);
+    let avgCad = cadVals.length ? cadVals.reduce((a,b)=>a+b,0)/cadVals.length : null;
+    let cadDoubled = false;
+    if(avgCad != null && avgCad < 120){ avgCad *= 2; cadDoubled = true; } // many devices report single-leg cadence
+
+    // splits per km
+    const splitDist = 1000;
+    const splits = [];
+    let nextSplit = splitDist;
+    let splitStartIdx = 0;
+    let splitStartTime = points[0].t;
+    for(let i=1;i<points.length;i++){
+      if(distArr[i] >= nextSplit || i === points.length-1){
+        const segDist = distArr[i] - distArr[splitStartIdx];
+        const segTime = (points[i].t - splitStartTime)/1000;
+        const segHr = points.slice(splitStartIdx,i+1).map(p=>p.hr).filter(v=>v!=null);
+        splits.push({
+          idx: splits.length+1,
+          distM: segDist,
+          timeS: segTime,
+          paceSecPerKm: segDist>0 ? segTime/(segDist/1000) : null,
+          avgHr: segHr.length ? segHr.reduce((a,b)=>a+b,0)/segHr.length : null,
+          partial: distArr[i] < nextSplit
+        });
+        nextSplit += splitDist;
+        splitStartIdx = i;
+        splitStartTime = points[i].t;
+      }
+    }
+
+    // aerobic decoupling: compare efficiency factor (pace / hr) first half vs second half by time
+    let decoupling = null;
+    if(hrVals.length > 10){
+      const midTime = points[0].t + totalDuration*1000/2;
+      const firstHalf = points.filter(p=>p.t <= midTime);
+      const secondHalf = points.filter(p=>p.t > midTime);
+      function halfStats(half){
+        if(half.length < 2) return null;
+        let d=0;
+        for(let i=1;i<half.length;i++){
+          if(half[i].lat!=null && half[i-1].lat!=null){
+            d += haversine(half[i-1].lat, half[i-1].lon, half[i].lat, half[i].lon);
+          }
+        }
+        const t = (half[half.length-1].t - half[0].t)/1000;
+        const hrs = half.map(p=>p.hr).filter(v=>v!=null);
+        const hr = hrs.length ? hrs.reduce((a,b)=>a+b,0)/hrs.length : null;
+        if(!t || !d || !hr) return null;
+        return { speed: d/t, hr };
+      }
+      const h1 = halfStats(firstHalf), h2 = halfStats(secondHalf);
+      if(h1 && h2){
+        const ef1 = h1.speed / h1.hr;
+        const ef2 = h2.speed / h2.hr;
+        decoupling = ((ef1 - ef2) / ef1) * 100; // positive = drift/fatigue (HR rose relative to pace)
+      }
+    }
+
+    // grade-adjusted pace: sum per-split adjustment based on elevation change per split
+    let gapSecPerKm = null;
+    {
+      let totalAdjSec = 0, totalKm = 0;
+      let idx = 0;
+      for(const sp of splits){
+        if(sp.distM <= 0) { idx++; continue; }
+        // find elevation change across this split's point range
+        idx++;
+      }
+      // simpler global approach using overall grade isn't very meaningful per split without index mapping;
+      // compute using overall elevation gain/loss vs distance for a whole-run adjustment estimate
+      const netGrainPercent = totalDist>0 ? ((gain - loss*0.5) / totalDist) * 100 : 0;
+      const rawPaceSecPerKm = totalDist>0 ? totalDuration/(totalDist/1000) : null;
+      if(rawPaceSecPerKm != null){
+        const adjPerPercent = netGrainPercent >= 0 ? 12 : 6;
+        gapSecPerKm = rawPaceSecPerKm - (netGrainPercent * adjPerPercent);
+      }
+    }
+
+    const paceSecPerKm = totalDuration/(totalDist/1000);
+    const splitPaces = splits.filter(s=>!s.partial && s.paceSecPerKm).map(s=>s.paceSecPerKm);
+    let paceStdDev = null;
+    if(splitPaces.length > 1){
+      const mean = splitPaces.reduce((a,b)=>a+b,0)/splitPaces.length;
+      const variance = splitPaces.reduce((a,b)=>a+(b-mean)**2,0)/splitPaces.length;
+      paceStdDev = Math.sqrt(variance);
+    }
+
+    // hr zones (if maxHr provided by caller at render-time; stored raw hr series here)
+    return {
+      startTime: points[0].t,
+      totalDistM: totalDist,
+      totalDurationS: totalDuration,
+      paceSecPerKm,
+      gapSecPerKm,
+      elevGainM: gain,
+      elevLossM: loss,
+      avgHr, maxHr, hrSeries: hrVals,
+      avgCad, cadDoubled,
+      splits,
+      decoupling,
+      paceStdDev,
+      pointCount: points.length
+    };
+  }
+
+  // ---------- formatting ----------
+  function fmtDist(m, units){
+    const v = units==='mi' ? m/1609.34 : m/1000;
+    return v.toFixed(2);
+  }
+  function fmtDur(sec){
+    sec = Math.round(sec);
+    const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+    if(h>0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    return `${m}:${String(s).padStart(2,'0')}`;
+  }
+  function fmtPace(secPerKm, units){
+    if(secPerKm == null || !isFinite(secPerKm)) return '—';
+    const secPerUnit = units==='mi' ? secPerKm * 1.60934 : secPerKm;
+    const m = Math.floor(secPerUnit/60), s = Math.round(secPerUnit%60);
+    return `${m}:${String(s).padStart(2,'0')} /${units==='mi'?'mi':'km'}`;
+  }
+  function fmtDate(ts){
+    const d = new Date(ts);
+    return d.toLocaleDateString(undefined, { year:'numeric', month:'short', day:'numeric' });
+  }
+  function unitLabel(){ return settings.units==='mi' ? 'mi' : 'km'; }
+  function elevUnit(m){
+    if(settings.units==='mi') return `${Math.round(m*3.28084)} ft`;
+    return `${Math.round(m)} m`;
+  }
+
+  // ---------- insight generation ----------
+  function generateRunInsights(run, allRuns){
+    const s = run.stats;
+    const list = [];
+    if(s.decoupling != null){
+      if(s.decoupling > 10){
+        list.push({level:'warn', text:`Aerobic decoupling was ${s.decoupling.toFixed(1)}% — your heart rate climbed noticeably relative to pace in the second half. That usually means the effort outpaced your current aerobic fitness or fueling/hydration slipped. More easy-paced endurance mileage tends to bring this down.`});
+      } else if(s.decoupling > 5){
+        list.push({level:'warn', text:`Mild aerobic decoupling of ${s.decoupling.toFixed(1)}% between the first and second half — a bit of fatigue crept in, which is normal for longer or harder efforts.`});
+      } else if(s.decoupling < -3){
+        list.push({level:'good', text:`Negative decoupling (${s.decoupling.toFixed(1)}%) — your heart rate actually dropped relative to pace as the run went on, a strong sign of good aerobic fitness or a negative-split effort.`});
+      } else {
+        list.push({level:'good', text:`Decoupling stayed low (${s.decoupling.toFixed(1)}%), meaning your heart rate tracked pace consistently through the run — solid aerobic control.`});
+      }
+    }
+    if(s.paceStdDev != null){
+      const cv = s.paceStdDev / s.paceSecPerKm;
+      if(cv > 0.08){
+        list.push({level:'warn', text:`Split paces varied quite a bit (±${Math.round(s.paceStdDev)}s/km) — either the course was rolling/technical, or effort wasn't very even. Worth checking if that was intentional (e.g. intervals/hills).`});
+      } else {
+        list.push({level:'good', text:`Pacing was even across splits (±${Math.round(s.paceStdDev)}s/km) — good pacing discipline.`});
+      }
+    }
+    if(s.gapSecPerKm != null && Math.abs(s.gapSecPerKm - s.paceSecPerKm) > 8){
+      if(s.gapSecPerKm > s.paceSecPerKm){
+        list.push({level:'info', text:`Grade-adjusted pace (~${fmtPace(s.gapSecPerKm, settings.units)}) was meaningfully slower than raw pace — this run had real climbing, so the effort was harder than the raw pace suggests.`});
+      } else {
+        list.push({level:'info', text:`Grade-adjusted pace (~${fmtPace(s.gapSecPerKm, settings.units)}) was faster than raw pace — net downhill course, so raw pace overstates the effort a bit.`});
+      }
+    }
+    if(s.avgCad != null){
+      if(s.avgCad < 165){
+        list.push({level:'warn', text:`Average cadence was about ${Math.round(s.avgCad)} spm, on the lower side. Many runners find nudging cadence up a little (shorter, quicker steps) reduces impact stress and injury risk.${s.cadDoubled?' (Doubled from single-leg count reported by your device.)':''}`});
+      } else {
+        list.push({level:'good', text:`Cadence averaged ${Math.round(s.avgCad)} spm — in a solid range.${s.cadDoubled?' (Doubled from single-leg count reported by your device.)':''}`});
+      }
+    }
+    if(settings.maxHr && s.avgHr){
+      const pct = (s.avgHr/settings.maxHr)*100;
+      let zone = 'Zone 1 (recovery)';
+      if(pct>=90) zone='Zone 5 (max effort)';
+      else if(pct>=80) zone='Zone 4 (threshold)';
+      else if(pct>=70) zone='Zone 3 (tempo)';
+      else if(pct>=60) zone='Zone 2 (easy/aerobic)';
+      list.push({level:'info', text:`Average heart rate was ${Math.round(s.avgHr)} bpm (${pct.toFixed(0)}% of max) — mostly ${zone} effort.`});
+    }
+    // mileage ramp vs prior 7 days
+    const runTime = run.stats.startTime;
+    const weekBefore = allRuns.filter(r => r.id!==run.id && r.stats.startTime < runTime && r.stats.startTime >= runTime - 7*86400000);
+    const priorWeek = allRuns.filter(r => r.id!==run.id && r.stats.startTime < runTime - 7*86400000 && r.stats.startTime >= runTime - 14*86400000);
+    if(weekBefore.length && priorWeek.length){
+      const thisWk = weekBefore.reduce((a,r)=>a+r.stats.totalDistM,0) + s.totalDistM;
+      const lastWk = priorWeek.reduce((a,r)=>a+r.stats.totalDistM,0);
+      if(lastWk > 0){
+        const pctChange = ((thisWk-lastWk)/lastWk)*100;
+        if(pctChange > 15){
+          list.push({level:'bad', text:`Trailing 7-day mileage is up ${pctChange.toFixed(0)}% versus the previous week. Ramping past ~10% a week is a well-known overuse injury risk factor — worth an easier week soon if this keeps climbing.`});
+        }
+      }
+    }
+    if(list.length===0){
+      list.push({level:'info', text:'Not enough heart rate or split data in this file for deeper analysis — distance, pace, and elevation are still shown above.'});
+    }
+    return list;
+  }
+
+  function generateTrendInsights(){
+    const list = [];
+    if(runs.length < 2){
+      list.push({level:'info', text:'Upload a few more runs to unlock trend analysis — pace/HR trends, weekly load, and consistency need at least 2-3 runs.'});
+      return list;
+    }
+    const sorted = [...runs].sort((a,b)=>a.stats.startTime-b.stats.startTime);
+    // weekly mileage buckets
+    const weeks = {};
+    sorted.forEach(r=>{
+      const wk = Math.floor(r.stats.startTime / (7*86400000));
+      weeks[wk] = (weeks[wk]||0) + r.stats.totalDistM;
+    });
+    const weekKeys = Object.keys(weeks).map(Number).sort((a,b)=>a-b);
+    if(weekKeys.length >= 2){
+      const last = weeks[weekKeys[weekKeys.length-1]];
+      const prev = weeks[weekKeys[weekKeys.length-2]];
+      if(prev>0){
+        const change = ((last-prev)/prev)*100;
+        if(change > 15) list.push({level:'bad', text:`Weekly distance jumped ${change.toFixed(0)}% versus the prior week. Consider easing off slightly to reduce injury risk.`});
+        else if(change < -30) list.push({level:'info', text:`Weekly distance dropped ${Math.abs(change).toFixed(0)}% — planned taper/rest, or a sign of fatigue/life getting in the way?`});
+      }
+    }
+    // pace trend (recent 5 vs prior 5)
+    const paces = sorted.map(r=>r.stats.paceSecPerKm);
+    if(paces.length >= 6){
+      const recent = paces.slice(-5);
+      const prior = paces.slice(-10,-5);
+      const rAvg = recent.reduce((a,b)=>a+b,0)/recent.length;
+      const pAvg = prior.length ? prior.reduce((a,b)=>a+b,0)/prior.length : null;
+      if(pAvg){
+        const diff = pAvg - rAvg; // positive = getting faster
+        if(diff > 8) list.push({level:'good', text:`Average pace over your last 5 runs is about ${Math.round(diff)}s/km faster than the 5 runs before that — nice trend.`});
+        else if(diff < -8) list.push({level:'warn', text:`Average pace over your last 5 runs is about ${Math.round(-diff)}s/km slower than the 5 before — could be a harder training block, heat, terrain, or fatigue.`});
+      }
+    }
+    // decoupling trend
+    const decVals = sorted.filter(r=>r.stats.decoupling!=null).map(r=>r.stats.decoupling);
+    if(decVals.length >= 4){
+      const recent = decVals.slice(-3).reduce((a,b)=>a+b,0)/Math.min(3,decVals.slice(-3).length);
+      const early = decVals.slice(0,3).reduce((a,b)=>a+b,0)/Math.min(3,decVals.slice(0,3).length);
+      if(recent < early - 2) list.push({level:'good', text:`Aerobic decoupling has trended down over time (${early.toFixed(1)}% → ${recent.toFixed(1)}%) — a good sign your aerobic base is improving.`});
+      else if(recent > early + 2) list.push({level:'warn', text:`Aerobic decoupling has trended up over time (${early.toFixed(1)}% → ${recent.toFixed(1)}%) — worth watching; could reflect accumulated fatigue.`});
+    }
+    if(list.length===0) list.push({level:'info', text:'No major red flags across your logged runs — keep uploading to track trends over more weeks.'});
+    return list;
+  }
+
+  // ---------- AI coaching notes (BYOK, direct browser call) ----------
+  function buildAiPrompt(run, allRuns){
+    const s = run.stats;
+    const sorted = [...allRuns].sort((a,b)=>a.stats.startTime-b.stats.startTime);
+    const idx = sorted.findIndex(r=>r.id===run.id);
+    const recent = sorted.slice(Math.max(0, idx-5), idx);
+    const recentSummary = recent.length
+      ? recent.map(r=>`${fmtDate(r.stats.startTime)}: ${fmtDist(r.stats.totalDistM, settings.units)}${unitLabel()} @ ${fmtPace(r.stats.paceSecPerKm, settings.units)}${r.stats.avgHr?`, avg HR ${Math.round(r.stats.avgHr)}`:''}`).join('\n')
+      : 'No prior runs logged.';
+    const splitSummary = s.splits.map(sp=>`${sp.idx}: ${fmtPace(sp.paceSecPerKm, settings.units)}${sp.avgHr?` (HR ${Math.round(sp.avgHr)})`:''}`).join(', ');
+
+    return `You are an experienced, encouraging running coach reviewing a single training run for an athlete you work with regularly. Give a short, specific, actionable coaching note (120-180 words, plain prose, no headers or bullet lists) based on the data below. Mention 1-2 concrete strengths and 1-2 concrete things to watch or work on. Reference actual numbers from the data. Do not simply restate every stat; interpret what it means for their training.
+
+THIS RUN (${fmtDate(s.startTime)}):
+- Distance: ${fmtDist(s.totalDistM, settings.units)} ${unitLabel()}
+- Duration: ${fmtDur(s.totalDurationS)}
+- Avg pace: ${fmtPace(s.paceSecPerKm, settings.units)}
+- Grade-adjusted pace: ${s.gapSecPerKm ? fmtPace(s.gapSecPerKm, settings.units) : 'n/a'}
+- Elevation gain/loss: ${elevUnit(s.elevGainM)} / ${elevUnit(s.elevLossM)}
+- Avg HR: ${s.avgHr ? Math.round(s.avgHr)+' bpm' : 'n/a'}, Max HR: ${s.maxHr ? Math.round(s.maxHr)+' bpm' : 'n/a'}${settings.maxHr ? ` (athlete's max HR: ${settings.maxHr} bpm)` : ''}
+- Cadence: ${s.avgCad ? Math.round(s.avgCad)+' spm' : 'n/a'}
+- Aerobic decoupling (first half vs second half efficiency): ${s.decoupling!=null ? s.decoupling.toFixed(1)+'%' : 'n/a'}
+- Pace variability across splits (stddev): ${s.paceStdDev!=null ? Math.round(s.paceStdDev)+'s/km' : 'n/a'}
+- Per-km splits: ${splitSummary}
+
+RECENT RUN HISTORY (most recent 5 before this one):
+${recentSummary}`;
+  }
+
+  async function generateAiNote(run){
+    if(!settings.apiKey){
+      run.aiNoteError = 'Add an Anthropic API key in settings to enable this.';
+      renderDetailPanel(run.id);
+      return;
+    }
+    run.aiNoteLoading = true;
+    run.aiNoteError = null;
+    renderDetailPanel(run.id);
+    try{
+      const prompt = buildAiPrompt(run, runs);
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': settings.apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 400,
+          messages: [{ role: 'user', content: prompt }]
+        })
+      });
+      if(!resp.ok){
+        let detail = '';
+        try{ const errJson = await resp.json(); detail = errJson.error && errJson.error.message ? errJson.error.message : ''; }catch(e){}
+        if(resp.status === 401) throw new Error('Invalid API key.');
+        if(resp.status === 429) throw new Error('Rate limited — try again in a moment.');
+        throw new Error(detail || `Request failed (${resp.status})`);
+      }
+      const data = await resp.json();
+      const text = (data.content || []).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
+      run.aiNote = { text: text || '(empty response)', at: Date.now() };
+    }catch(err){
+      run.aiNoteError = err.message || 'Something went wrong generating this note.';
+    }finally{
+      run.aiNoteLoading = false;
+      saveRuns();
+      renderDetailPanel(run.id);
+    }
+  }
+
+  // ---------- file handling ----------
+  function readFileAsText(file){
+    return new Promise((resolve, reject)=>{
+      const r = new FileReader();
+      r.onload = ()=>resolve(r.result);
+      r.onerror = ()=>reject(r.error || new Error('read error'));
+      r.readAsText(file);
+    });
+  }
+  function readFileAsArrayBuffer(file){
+    return new Promise((resolve, reject)=>{
+      const r = new FileReader();
+      r.onload = ()=>resolve(r.result);
+      r.onerror = ()=>reject(r.error || new Error('read error'));
+      r.readAsArrayBuffer(file);
+    });
+  }
+
+  function isDuplicate(stats, results){
+    return runs.some(r => Math.abs(r.stats.startTime - stats.startTime) < 5000 && Math.abs(r.stats.totalDistM - stats.totalDistM) < 20)
+      || results.newRuns.some(r => Math.abs(r.stats.startTime - stats.startTime) < 5000 && Math.abs(r.stats.totalDistM - stats.totalDistM) < 20);
+  }
+
+  function processGpxTcxText(text, filename, results){
+    try{
+      const xml = new DOMParser().parseFromString(text, 'text/xml');
+      if(xml.querySelector('parsererror')) throw new Error('XML parse error');
+      let points;
+      if(findByLocalName(xml, 'trkpt')){
+        points = parseGPX(xml);
+      } else if(findByLocalName(xml, 'Trackpoint')){
+        points = parseTCX(xml);
+      } else {
+        results.skipped.push(`${filename} (unrecognized format)`);
+        return;
+      }
+      const stats = computeStats(points);
+      if(!stats){
+        results.skipped.push(`${filename} (not enough GPS/time data)`);
+        return;
+      }
+      if(isDuplicate(stats, results)){
+        results.duplicates++;
+        return;
+      }
+      const id = `${stats.startTime}-${Math.round(stats.totalDistM)}-${Math.random().toString(36).slice(2,7)}`;
+      results.newRuns.push({ id, name: filename, stats });
+      results.imported++;
+    }catch(err){
+      results.errors.push(`${filename}: ${err.message}`);
+    }
+  }
+
+  async function processZipFile(file, results){
+    let zip;
+    try{
+      const buf = await readFileAsArrayBuffer(file);
+      zip = await JSZip.loadAsync(buf);
+    }catch(err){
+      results.errors.push(`${file.name}: couldn't open zip (${err.message})`);
+      return;
+    }
+    const entries = Object.values(zip.files).filter(f=>!f.dir);
+    for(const entry of entries){
+      const lower = entry.name.toLowerCase();
+      try{
+        if(lower.endsWith('.fit') || lower.endsWith('.fit.gz')){
+          results.skippedFit++;
+        } else if(lower.endsWith('.gpx.gz') || lower.endsWith('.tcx.gz')){
+          const bytes = await entry.async('uint8array');
+          const text = pako.ungzip(bytes, { to: 'string' });
+          processGpxTcxText(text, entry.name.replace(/\.gz$/i,''), results);
+        } else if(lower.endsWith('.gpx') || lower.endsWith('.tcx')){
+          const text = await entry.async('string');
+          processGpxTcxText(text, entry.name, results);
+        }
+        // other entries in the archive (photos, summary CSVs, etc.) are ignored
+      }catch(err){
+        results.errors.push(`${entry.name}: ${err.message}`);
+      }
+    }
+  }
+
+  async function handleFiles(fileList){
+    const results = { newRuns: [], imported: 0, duplicates: 0, skippedFit: 0, skipped: [], errors: [] };
+    for(const file of Array.from(fileList)){
+      const lower = file.name.toLowerCase();
+      try{
+        if(lower.endsWith('.zip')){
+          await processZipFile(file, results);
+        } else if(lower.endsWith('.gpx') || lower.endsWith('.tcx')){
+          const text = await readFileAsText(file);
+          processGpxTcxText(text, file.name, results);
+        } else {
+          results.skipped.push(`${file.name} (unsupported file type)`);
+        }
+      }catch(err){
+        results.errors.push(`${file.name}: ${err.message}`);
+      }
+    }
+    if(results.newRuns.length){
+      runs = runs.concat(results.newRuns);
+      runs.sort((a,b)=>a.stats.startTime-b.stats.startTime);
+      saveRuns();
+    }
+    renderAll();
+
+    const parts = [];
+    if(results.imported) parts.push(`Imported ${results.imported} run${results.imported!==1?'s':''}.`);
+    if(results.duplicates) parts.push(`Skipped ${results.duplicates} duplicate${results.duplicates!==1?'s':''} already in your log.`);
+    if(results.skippedFit) parts.push(`Skipped ${results.skippedFit} .fit file${results.skippedFit!==1?'s':''} — FIT format isn't supported yet, only GPX/TCX. Re-export those activities as GPX from Strava if you need them.`);
+    if(results.skipped.length) parts.push(`Skipped ${results.skipped.length} file${results.skipped.length!==1?'s':''}: ${results.skipped.slice(0,5).join(', ')}${results.skipped.length>5?'…':''}`);
+    if(results.errors.length) parts.push(`${results.errors.length} file${results.errors.length!==1?'s':''} failed to parse: ${results.errors.slice(0,5).join('; ')}${results.errors.length>5?'…':''}`);
+    if(parts.length) alert(parts.join('\n'));
+    else alert('No new runs found in the file(s) you selected.');
+  }
+
+  // ---------- rendering ----------
+  function renderAll(){
+    const hasRuns = runs.length > 0;
+    document.getElementById('mainTabs').classList.toggle('hidden', !hasRuns);
+    document.getElementById('emptyState').classList.toggle('hidden', hasRuns);
+    if(!hasRuns){
+      document.getElementById('trendsPanel').classList.add('hidden');
+      document.getElementById('detailPanel').classList.add('hidden');
+      return;
+    }
+    renderTrendsPanel();
+    if(activeRunId) renderDetailPanel(activeRunId);
+  }
+
+  function renderTrendsPanel(){
+    document.getElementById('runCount').textContent = `${runs.length} run${runs.length!==1?'s':''}`;
+    const tbody = document.querySelector('#runsTable tbody');
+    tbody.innerHTML = '';
+    [...runs].sort((a,b)=>b.stats.startTime-a.stats.startTime).forEach(run=>{
+      const s = run.stats;
+      const tr = document.createElement('tr');
+      tr.className = 'clickable';
+      tr.innerHTML = `
+        <td>${fmtDate(s.startTime)}</td>
+        <td>${fmtDist(s.totalDistM, settings.units)} ${unitLabel()}</td>
+        <td>${fmtDur(s.totalDurationS)}</td>
+        <td>${fmtPace(s.paceSecPerKm, settings.units)}</td>
+        <td>${s.avgHr ? Math.round(s.avgHr)+' bpm' : '—'}</td>
+        <td>${elevUnit(s.elevGainM)}</td>
+        <td><a class="linklike" data-id="${run.id}">View →</a></td>
+      `;
+      tr.addEventListener('click', ()=>openDetail(run.id));
+      tbody.appendChild(tr);
+    });
+
+    const sorted = [...runs].sort((a,b)=>a.stats.startTime-b.stats.startTime);
+    const labels = sorted.map(r=>fmtDate(r.stats.startTime));
+
+    drawLineChart('paceChart', labels, sorted.map(r=>r.stats.paceSecPerKm/60), 'Pace (min/km equiv)', true);
+    drawLineChart('hrChart', labels, sorted.map(r=>r.stats.avgHr), 'Avg HR (bpm)', false);
+    drawLineChart('decoupleChart', labels, sorted.map(r=>r.stats.decoupling), 'Decoupling %', false);
+
+    // weekly mileage bar
+    const weeks = {};
+    sorted.forEach(r=>{
+      const wk = Math.floor(r.stats.startTime/(7*86400000));
+      weeks[wk] = (weeks[wk]||0) + r.stats.totalDistM;
+    });
+    const wkKeys = Object.keys(weeks).map(Number).sort((a,b)=>a-b);
+    const wkLabels = wkKeys.map(k=>{
+      const d = new Date(k*7*86400000);
+      return d.toLocaleDateString(undefined,{month:'short',day:'numeric'});
+    });
+    const wkVals = wkKeys.map(k=> settings.units==='mi' ? weeks[k]/1609.34 : weeks[k]/1000);
+    drawBarChart('mileageChart', wkLabels, wkVals, `Distance (${unitLabel()})`);
+
+    document.getElementById('trendInsights').innerHTML = generateTrendInsights().map(i=>
+      `<li><span class="dot ${i.level}"></span><span>${i.text}</span></li>`
+    ).join('');
+
+    document.getElementById('trendsPanel').classList.remove('hidden');
+  }
+
+  function drawLineChart(canvasId, labels, data, label, invertY){
+    const ctx = document.getElementById(canvasId).getContext('2d');
+    if(charts[canvasId]) charts[canvasId].destroy();
+    charts[canvasId] = new Chart(ctx, {
+      type:'line',
+      data:{ labels, datasets:[{ label, data, borderColor:'#c9a24c', backgroundColor:'rgba(201,162,76,.15)', tension:.3, spanGaps:true, pointRadius:3 }]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        scales:{
+          y:{ reverse: !!invertY, ticks:{ color:'#a9895f', font:{family:"'Courier Prime', monospace"} }, grid:{ color:'#3a2418' } },
+          x:{ ticks:{ color:'#a9895f', font:{family:"'Courier Prime', monospace"} }, grid:{ color:'#3a2418' } }
+        },
+        plugins:{ legend:{ labels:{ color:'#e6d3a3', font:{family:"'IM Fell English', serif"} } } }
+      }
+    });
+  }
+  function drawBarChart(canvasId, labels, data, label){
+    const ctx = document.getElementById(canvasId).getContext('2d');
+    if(charts[canvasId]) charts[canvasId].destroy();
+    charts[canvasId] = new Chart(ctx, {
+      type:'bar',
+      data:{ labels, datasets:[{ label, data, backgroundColor:'#8a9296' }]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        scales:{
+          y:{ ticks:{ color:'#a9895f', font:{family:"'Courier Prime', monospace"} }, grid:{ color:'#3a2418' } },
+          x:{ ticks:{ color:'#a9895f', font:{family:"'Courier Prime', monospace"} }, grid:{ color:'#3a2418' } }
+        },
+        plugins:{ legend:{ labels:{ color:'#e6d3a3', font:{family:"'IM Fell English', serif"} } } }
+      }
+    });
+  }
+
+  function openDetail(id){
+    activeRunId = id;
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    document.querySelector('.tab[data-tab="detail"]').classList.add('active');
+    document.getElementById('trendsPanel').classList.add('hidden');
+    renderDetailPanel(id);
+  }
+
+  function renderDetailPanel(id){
+    const run = runs.find(r=>r.id===id);
+    const panel = document.getElementById('detailPanel');
+    if(!run){ panel.classList.add('hidden'); return; }
+    const s = run.stats;
+    const insights = generateRunInsights(run, runs);
+
+    let hrZoneHtml = '';
+    if(settings.maxHr && s.hrSeries.length){
+      const zoneBounds = [0,.6,.7,.8,.9,1.1].map(p=>p*settings.maxHr);
+      const zoneNames = ['Z1 Recovery','Z2 Aerobic','Z3 Tempo','Z4 Threshold','Z5 Max'];
+      const counts = [0,0,0,0,0];
+      s.hrSeries.forEach(hr=>{
+        for(let z=4;z>=0;z--){ if(hr >= zoneBounds[z]){ counts[z]++; break; } }
+      });
+      const total = s.hrSeries.length;
+      hrZoneHtml = `<div style="margin-top:14px;">
+        <div class="sub" style="margin-bottom:6px;">Heart rate zone distribution</div>
+        ${zoneNames.map((name,i)=>{
+          const pct = total? (counts[i]/total*100) : 0;
+          return `<div style="display:flex; align-items:center; gap:8px; margin-bottom:4px; font-size:12px;">
+            <div style="width:110px; color:var(--sub);">${name}</div>
+            <div style="flex:1; background:var(--panel2); border-radius:4px; overflow:hidden; height:8px;">
+              <div style="width:${pct}%; height:100%; background:var(--accent2);"></div>
+            </div>
+            <div style="width:40px; text-align:right;">${pct.toFixed(0)}%</div>
+          </div>`;
+        }).join('')}
+      </div>`;
+    }
+
+    const splitRows = s.splits.map(sp=>{
+      const maxPace = Math.max(...s.splits.map(x=>x.paceSecPerKm||0));
+      const widthPct = sp.paceSecPerKm ? Math.max(15, 100 - ((sp.paceSecPerKm/maxPace)*40)) : 0;
+      return `<tr>
+        <td>${sp.idx}${sp.partial?' (partial)':''}</td>
+        <td>${(sp.distM/1000*(settings.units==='mi'?0.621371/1:1)).toFixed(2)}${settings.units==='mi'?' mi':' km'}</td>
+        <td>${fmtPace(sp.paceSecPerKm, settings.units)}</td>
+        <td>${sp.avgHr ? Math.round(sp.avgHr) : '—'}</td>
+        <td><div class="split-bar" style="width:${widthPct}%;"></div></td>
+      </tr>`;
+    }).join('');
+
+    panel.innerHTML = `
+      <div class="card">
+        <div class="run-title">
+          <h2>${fmtDate(s.startTime)} — ${run.name}</h2>
+          <div>
+            <button class="ghost small" id="backToTrendsBtn">← Back to trends</button>
+            <button class="ghost small" id="deleteRunBtn">Delete run</button>
+          </div>
+        </div>
+        <div class="stat-grid">
+          <div class="stat"><div class="label">Distance</div><div class="value">${fmtDist(s.totalDistM, settings.units)} <span class="unit">${unitLabel()}</span></div></div>
+          <div class="stat"><div class="label">Duration</div><div class="value">${fmtDur(s.totalDurationS)}</div></div>
+          <div class="stat"><div class="label">Avg pace</div><div class="value">${fmtPace(s.paceSecPerKm, settings.units)}</div></div>
+          <div class="stat"><div class="label">Grade-adj pace</div><div class="value">${s.gapSecPerKm? fmtPace(s.gapSecPerKm, settings.units) : '—'}</div></div>
+          <div class="stat"><div class="label">Avg HR</div><div class="value">${s.avgHr? Math.round(s.avgHr) : '—'} <span class="unit">bpm</span></div></div>
+          <div class="stat"><div class="label">Max HR</div><div class="value">${s.maxHr? Math.round(s.maxHr) : '—'} <span class="unit">bpm</span></div></div>
+          <div class="stat"><div class="label">Elev gain</div><div class="value">${elevUnit(s.elevGainM)}</div></div>
+          <div class="stat"><div class="label">Elev loss</div><div class="value">${elevUnit(s.elevLossM)}</div></div>
+          <div class="stat"><div class="label">Cadence</div><div class="value">${s.avgCad? Math.round(s.avgCad) : '—'} <span class="unit">spm</span></div></div>
+          <div class="stat"><div class="label">Decoupling</div><div class="value">${s.decoupling!=null? s.decoupling.toFixed(1)+'%' : '—'}</div></div>
+        </div>
+        ${hrZoneHtml}
+      </div>
+
+      <div class="card">
+        <div class="run-title">
+          <h2>AI coaching note</h2>
+          <button class="ghost small" id="aiNoteBtn">${run.aiNote ? 'Regenerate' : 'Generate'}</button>
+        </div>
+        <div id="aiNoteBody" style="margin-top:10px; font-size:14px; line-height:1.6;">
+          ${run.aiNoteLoading ? '<span class="sub" style="font-style:italic;">Thinking it over…</span>' : ''}
+          ${!run.aiNoteLoading && run.aiNoteError ? `<span style="color:var(--bad);">${run.aiNoteError}</span>` : ''}
+          ${!run.aiNoteLoading && !run.aiNoteError && run.aiNote ? `<div>${run.aiNote.text}</div><div class="sub" style="margin-top:8px; font-size:11px;">Generated ${fmtDate(run.aiNote.at)}</div>` : ''}
+          ${!run.aiNoteLoading && !run.aiNoteError && !run.aiNote ? '<span class="sub" style="font-style:italic;">Click Generate for a short AI-written coaching note on this run (uses your Anthropic API key from settings).</span>' : ''}
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="run-title"><h2>Feedback</h2></div>
+        <ul class="insights">
+          ${insights.map(i=>`<li><span class="dot ${i.level}"></span><span>${i.text}</span></li>`).join('')}
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="run-title"><h2>Splits</h2></div>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead><tr><th>#</th><th>Dist</th><th>Pace</th><th>Avg HR</th><th></th></tr></thead>
+            <tbody>${splitRows}</tbody>
+          </table>
+        </div>
+      </div>
+    `;
+    panel.classList.remove('hidden');
+    document.getElementById('aiNoteBtn').addEventListener('click', ()=>{ generateAiNote(run); });
+    document.getElementById('backToTrendsBtn').addEventListener('click', ()=>{
+      document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+      document.querySelector('.tab[data-tab="trends"]').classList.add('active');
+      panel.classList.add('hidden');
+      document.getElementById('trendsPanel').classList.remove('hidden');
+    });
+    document.getElementById('deleteRunBtn').addEventListener('click', ()=>{
+      if(!confirm('Delete this run?')) return;
+      runs = runs.filter(r=>r.id!==id);
+      saveRuns();
+      activeRunId = null;
+      panel.classList.add('hidden');
+      document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+      document.querySelector('.tab[data-tab="trends"]').classList.add('active');
+      renderAll();
+    });
+  }
+
+  // ---------- wiring ----------
+  const dropZone = document.getElementById('dropZone');
+  const fileInput = document.getElementById('fileInput');
+  dropZone.addEventListener('click', ()=>fileInput.click());
+  fileInput.addEventListener('change', e=>handleFiles(e.target.files));
+  ['dragenter','dragover'].forEach(evt=>{
+    dropZone.addEventListener(evt, e=>{ e.preventDefault(); dropZone.classList.add('drag'); });
+  });
+  ['dragleave','drop'].forEach(evt=>{
+    dropZone.addEventListener(evt, e=>{ e.preventDefault(); dropZone.classList.remove('drag'); });
+  });
+  dropZone.addEventListener('drop', e=>{
+    if(e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+  });
+
+  document.getElementById('unitSelect').addEventListener('change', e=>{
+    settings.units = e.target.value; saveSettings(); renderAll();
+  });
+  document.getElementById('maxHrInput').addEventListener('input', e=>{
+    settings.maxHr = e.target.value ? parseInt(e.target.value,10) : null;
+    saveSettings(); renderAll();
+  });
+  document.getElementById('apiKeyInput').addEventListener('input', e=>{
+    settings.apiKey = e.target.value ? e.target.value.trim() : null;
+    saveSettings();
+  });
+  document.getElementById('clearAllBtn').addEventListener('click', ()=>{
+    if(!confirm('Delete all loaded runs? This cannot be undone.')) return;
+    runs = [];
+    saveRuns();
+    activeRunId = null;
+    renderAll();
+  });
+  document.querySelectorAll('.tab').forEach(tab=>{
+    tab.addEventListener('click', ()=>{
+      document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+      tab.classList.add('active');
+      if(tab.dataset.tab==='trends'){
+        document.getElementById('detailPanel').classList.add('hidden');
+        document.getElementById('trendsPanel').classList.remove('hidden');
+      } else {
+        if(activeRunId){
+          document.getElementById('trendsPanel').classList.add('hidden');
+          document.getElementById('detailPanel').classList.remove('hidden');
+        } else if(runs.length){
+          openDetail([...runs].sort((a,b)=>b.stats.startTime-a.stats.startTime)[0].id);
+        }
+      }
+    });
+  });
+
+  // init
+  loadState();
+  document.getElementById('unitSelect').value = settings.units;
+  if(settings.maxHr) document.getElementById('maxHrInput').value = settings.maxHr;
+  if(settings.apiKey) document.getElementById('apiKeyInput').value = settings.apiKey;
+  renderAll();
+})();
+</script>
+</body>
+</html>
