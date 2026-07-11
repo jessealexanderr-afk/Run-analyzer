@@ -301,6 +301,25 @@
       if(rawS) settings = Object.assign(settings, JSON.parse(rawS));
     }catch(e){}
   }
+
+  // ---------- archiving old runs to save storage ----------
+  const ARCHIVE_AGE_MS = 365 * 86400000; // 1 year
+  function archiveOldRuns(){
+    const cutoff = Date.now() - ARCHIVE_AGE_MS;
+    let changed = false;
+    runs.forEach(run=>{
+      const s = run.stats;
+      if(s && s.startTime < cutoff && !s.archived){
+        delete s.route;
+        delete s.bestEfforts;
+        delete s.hrSeries;
+        delete s.splits;
+        s.archived = true;
+        changed = true;
+      }
+    });
+    return changed;
+  }
   function saveRuns(){
     try{
       localStorage.setItem(STORAGE_KEY, JSON.stringify(runs));
@@ -799,7 +818,9 @@
     const recentSummary = recent.length
       ? recent.map(r=>`${fmtDate(r.stats.startTime)}: ${fmtDist(r.stats.totalDistM, settings.units)}${unitLabel()} @ ${fmtPace(r.stats.paceSecPerKm, settings.units)}${r.stats.avgHr?`, avg HR ${Math.round(r.stats.avgHr)}`:''}`).join('\n')
       : 'No prior runs logged.';
-    const splitSummary = s.splits.map(sp=>`${sp.idx}: ${fmtPace(sp.paceSecPerKm, settings.units)}${sp.avgHr?` (HR ${Math.round(sp.avgHr)})`:''}`).join(', ');
+    const splitSummary = s.splits && s.splits.length
+      ? s.splits.map(sp=>`${sp.idx}: ${fmtPace(sp.paceSecPerKm, settings.units)}${sp.avgHr?` (HR ${Math.round(sp.avgHr)})`:''}`).join(', ')
+      : 'not available (archived run — older than 1 year)';
 
     return `You are an experienced, encouraging running coach reviewing a single training run for an athlete you work with regularly. Give a short, specific, actionable coaching note (120-180 words, plain prose, no headers or bullet lists) based on the data below. Mention 1-2 concrete strengths and 1-2 concrete things to watch or work on. Reference actual numbers from the data. Do not simply restate every stat; interpret what it means for their training.
 
@@ -1039,6 +1060,7 @@ ${recentSummary}`;
     if(results.newRuns.length){
       runs = runs.concat(results.newRuns);
       runs.sort((a,b)=>a.stats.startTime-b.stats.startTime);
+      archiveOldRuns();
       saveRuns();
     }
     renderAll();
@@ -1219,6 +1241,7 @@ ${recentSummary}`;
     if(results.newRuns.length){
       runs = runs.concat(results.newRuns);
       runs.sort((a,b)=>a.stats.startTime-b.stats.startTime);
+      archiveOldRuns();
       saveRuns();
     }
     if(Array.isArray(payload.gear)){
@@ -1457,7 +1480,7 @@ ${recentSummary}`;
     const insights = generateRunInsights(run, runs);
 
     let hrZoneHtml = '';
-    if(settings.maxHr && s.hrSeries.length){
+    if(settings.maxHr && s.hrSeries && s.hrSeries.length){
       const zoneBounds = [0,.6,.7,.8,.9,1.1].map(p=>p*settings.maxHr);
       const zoneNames = ['Z1 Recovery','Z2 Aerobic','Z3 Tempo','Z4 Threshold','Z5 Max'];
       const counts = [0,0,0,0,0];
@@ -1480,7 +1503,7 @@ ${recentSummary}`;
       </div>`;
     }
 
-    const splitRows = s.splits.map(sp=>{
+    const splitRows = (s.splits||[]).map(sp=>{
       const maxPace = Math.max(...s.splits.map(x=>x.paceSecPerKm||0));
       const widthPct = sp.paceSecPerKm ? Math.max(15, 100 - ((sp.paceSecPerKm/maxPace)*40)) : 0;
       return `<tr>
@@ -1508,6 +1531,7 @@ ${recentSummary}`;
             <button class="ghost small" id="deleteRunBtn">Delete run</button>
           </div>
         </div>
+        ${s.archived ? `<div class="sub" style="margin:6px 0 0; font-size:12px;">Archived — this run is over a year old, so route, splits, and HR-series detail were removed to save browser storage. Summary stats below are still accurate.</div>` : ''}
         <div class="stat-grid">
           <div class="stat"><div class="label">Distance</div><div class="value">${fmtDist(s.totalDistM, settings.units)} <span class="unit">${unitLabel()}</span></div></div>
           <div class="stat"><div class="label">Duration</div><div class="value">${fmtDur(s.totalDurationS)}</div></div>
@@ -1557,12 +1581,13 @@ ${recentSummary}`;
 
       <div class="card">
         <div class="run-title"><h2>Splits</h2></div>
+        ${splitRows ? `
         <div style="overflow-x:auto;">
           <table>
             <thead><tr><th>#</th><th>Dist</th><th>Pace</th><th>Avg HR</th><th></th></tr></thead>
             <tbody>${splitRows}</tbody>
           </table>
-        </div>
+        </div>` : `<div class="sub" style="font-size:13px;">Split data not stored for archived runs.</div>`}
       </div>
     `;
     panel.classList.remove('hidden');
@@ -1698,6 +1723,7 @@ ${recentSummary}`;
   // init
   loadState();
   loadGear();
+  if(archiveOldRuns()) saveRuns();
   document.getElementById('unitSelect').value = settings.units;
   document.getElementById('sportFilterSelect').value = settings.sportFilter;
   document.getElementById('trendRangeSelect').value = settings.trendRange;
