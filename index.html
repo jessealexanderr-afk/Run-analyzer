@@ -115,9 +115,9 @@
 
   <div class="card">
     <div class="drop" id="dropZone">
-      <div class="big">Drop GPX / TCX files here, or click to choose</div>
-      <div class="small">Also accepts a Strava bulk-export .zip &middot; multiple files supported &middot; nothing is uploaded anywhere, all parsing happens in your browser</div>
-      <input type="file" id="fileInput" multiple accept=".gpx,.tcx,.zip,application/gpx+xml,text/xml,application/xml,application/zip">
+      <div class="big">Drop GPX / TCX / FIT files here, or click to choose</div>
+      <div class="small">Also accepts a Strava bulk-export .zip (including .fit files) &middot; multiple files supported &middot; nothing is uploaded anywhere, all parsing happens in your browser</div>
+      <input type="file" id="fileInput" multiple accept=".gpx,.tcx,.fit,.zip,application/gpx+xml,text/xml,application/xml,application/zip,application/octet-stream">
     </div>
   </div>
 
@@ -699,6 +699,57 @@ ${recentSummary}`;
       || results.newRuns.some(r => Math.abs(r.stats.startTime - stats.startTime) < 5000 && Math.abs(r.stats.totalDistM - stats.totalDistM) < 20);
   }
 
+  // ---------- FIT support (loaded on demand from esm.sh, official Garmin SDK) ----------
+  let fitSdkPromise = null;
+  function loadFitSdk(){
+    if(!fitSdkPromise){
+      fitSdkPromise = import('https://esm.sh/@garmin/fitsdk@21.208.0');
+    }
+    return fitSdkPromise;
+  }
+
+  async function processFitBytes(bytes, filename, results){
+    try{
+      const { Decoder, Stream } = await loadFitSdk();
+      const stream = Stream.fromByteArray(bytes);
+      if(!Decoder.isFIT(stream)){
+        results.skipped.push(`${filename} (not a valid FIT file)`);
+        return;
+      }
+      const decoder = new Decoder(stream);
+      const { messages } = decoder.read();
+      const recs = messages.recordMesgs || [];
+      if(!recs.length){
+        results.skipped.push(`${filename} (no track records in FIT file)`);
+        return;
+      }
+      const SEMI_TO_DEG = 180 / Math.pow(2, 31);
+      const points = recs.filter(r=>r.timestamp).map(r=>({
+        t: new Date(r.timestamp).getTime(),
+        lat: r.positionLat != null ? r.positionLat * SEMI_TO_DEG : null,
+        lon: r.positionLong != null ? r.positionLong * SEMI_TO_DEG : null,
+        ele: r.enhancedAltitude != null ? r.enhancedAltitude : (r.altitude != null ? r.altitude : null),
+        hr: r.heartRate != null ? r.heartRate : null,
+        cad: r.cadence != null ? r.cadence : null,
+        distCum: r.distance != null ? r.distance : null
+      }));
+      const stats = computeStats(points);
+      if(!stats){
+        results.skipped.push(`${filename} (not enough GPS/time data)`);
+        return;
+      }
+      if(isDuplicate(stats, results)){
+        results.duplicates++;
+        return;
+      }
+      const id = `${stats.startTime}-${Math.round(stats.totalDistM)}-${Math.random().toString(36).slice(2,7)}`;
+      results.newRuns.push({ id, name: filename, stats });
+      results.imported++;
+    }catch(err){
+      results.errors.push(`${filename}: ${err.message}`);
+    }
+  }
+
   function processGpxTcxText(text, filename, results){
     try{
       const xml = new DOMParser().parseFromString(text, 'text/xml');
@@ -742,8 +793,13 @@ ${recentSummary}`;
     for(const entry of entries){
       const lower = entry.name.toLowerCase();
       try{
-        if(lower.endsWith('.fit') || lower.endsWith('.fit.gz')){
-          results.skippedFit++;
+        if(lower.endsWith('.fit.gz')){
+          const bytes = await entry.async('uint8array');
+          const inflated = pako.ungzip(bytes);
+          await processFitBytes(inflated, entry.name.replace(/\.gz$/i,''), results);
+        } else if(lower.endsWith('.fit')){
+          const bytes = await entry.async('uint8array');
+          await processFitBytes(bytes, entry.name, results);
         } else if(lower.endsWith('.gpx.gz') || lower.endsWith('.tcx.gz')){
           const bytes = await entry.async('uint8array');
           const text = pako.ungzip(bytes, { to: 'string' });
@@ -760,7 +816,7 @@ ${recentSummary}`;
   }
 
   async function handleFiles(fileList){
-    const results = { newRuns: [], imported: 0, duplicates: 0, skippedFit: 0, skipped: [], errors: [] };
+    const results = { newRuns: [], imported: 0, duplicates: 0, skipped: [], errors: [] };
     for(const file of Array.from(fileList)){
       const lower = file.name.toLowerCase();
       try{
@@ -769,6 +825,9 @@ ${recentSummary}`;
         } else if(lower.endsWith('.gpx') || lower.endsWith('.tcx')){
           const text = await readFileAsText(file);
           processGpxTcxText(text, file.name, results);
+        } else if(lower.endsWith('.fit')){
+          const buf = await readFileAsArrayBuffer(file);
+          await processFitBytes(new Uint8Array(buf), file.name, results);
         } else {
           results.skipped.push(`${file.name} (unsupported file type)`);
         }
@@ -786,7 +845,6 @@ ${recentSummary}`;
     const parts = [];
     if(results.imported) parts.push(`Imported ${results.imported} run${results.imported!==1?'s':''}.`);
     if(results.duplicates) parts.push(`Skipped ${results.duplicates} duplicate${results.duplicates!==1?'s':''} already in your log.`);
-    if(results.skippedFit) parts.push(`Skipped ${results.skippedFit} .fit file${results.skippedFit!==1?'s':''} — FIT format isn't supported yet, only GPX/TCX. Re-export those activities as GPX from Strava if you need them.`);
     if(results.skipped.length) parts.push(`Skipped ${results.skipped.length} file${results.skipped.length!==1?'s':''}: ${results.skipped.slice(0,5).join(', ')}${results.skipped.length>5?'…':''}`);
     if(results.errors.length) parts.push(`${results.errors.length} file${results.errors.length!==1?'s':''} failed to parse: ${results.errors.slice(0,5).join('; ')}${results.errors.length>5?'…':''}`);
     if(parts.length) alert(parts.join('\n'));
