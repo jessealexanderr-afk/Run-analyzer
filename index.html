@@ -7,6 +7,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=UnifrakturMaguntia&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
@@ -162,11 +164,20 @@
       </div>
       <div class="field">
         <label>&nbsp;</label>
+        <button class="ghost small" id="exportDataBtn">Export data</button>
+      </div>
+      <div class="field">
+        <label>&nbsp;</label>
+        <button class="ghost small" id="importDataBtn">Import data</button>
+        <input type="file" id="importDataInput" accept=".json,application/json" style="display:none;">
+      </div>
+      <div class="field">
+        <label>&nbsp;</label>
         <button class="ghost small" id="clearAllBtn">Clear all runs</button>
       </div>
     </div>
     <div class="sub" style="margin:10px 0 0; font-size:12px;">
-      Your key is stored only in this browser (localStorage) and calls Anthropic's API directly from your device &mdash; it never touches any server of mine. Each coaching note costs a fraction of a cent. Get a key at <span style="font-family:'Oswald',sans-serif;">console.anthropic.com</span>.
+      Your key is stored only in this browser (localStorage) and calls Anthropic's API directly from your device &mdash; it never touches any server of mine. Each coaching note costs a fraction of a cent. Get a key at <span style="font-family:'Oswald',sans-serif;">console.anthropic.com</span>. Everything else &mdash; runs and gear &mdash; lives only in this browser too; use Export/Import to back up or move your data to another device.
     </div>
   </div>
 
@@ -179,6 +190,9 @@
     <span class="sub">Jump to:</span>
     <a class="linklike" href="#runsTableSection">All runs</a> &middot;
     <a class="linklike" href="#chartsSection">Graphs</a> &middot;
+    <a class="linklike" href="#recordsCard">Records</a> &middot;
+    <a class="linklike" href="#predictorCard">Predictor</a> &middot;
+    <a class="linklike" href="#gearCard">Gear</a> &middot;
     <a class="linklike" href="#trendInsightsCard">Training signals</a>
   </div>
 
@@ -211,6 +225,38 @@
         <div class="chart-box"><canvas id="decoupleChart"></canvas></div>
       </div>
     </div>
+    <div class="card" id="recordsCard">
+      <div class="run-title"><h2>Personal records</h2></div>
+      <div style="overflow-x:auto;">
+        <table id="recordsTable">
+          <thead><tr><th>Distance</th><th>Best time</th><th>Pace</th><th>Date</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card" id="predictorCard">
+      <div class="run-title"><h2>Race predictor</h2></div>
+      <div id="predictorBody" style="margin-top:10px;"></div>
+    </div>
+    <div class="card" id="gearCard">
+      <div class="run-title"><h2>Gear</h2></div>
+      <div class="settings" style="margin-top:10px;">
+        <div class="field">
+          <label>Add a shoe</label>
+          <input type="text" id="newGearInput" placeholder="e.g. Pegasus 41" style="min-width:200px;">
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button class="small" id="addGearBtn">Add</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto; margin-top:10px;">
+        <table id="gearTable">
+          <thead><tr><th>Shoe</th><th>Distance</th><th>Runs</th><th></th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
     <div class="card" id="trendInsightsCard">
       <div class="run-title"><h2>Training signals</h2></div>
       <ul class="insights" id="trendInsights"></ul>
@@ -232,6 +278,7 @@
   let charts = {};
   let currentPage = 1;
   const PAGE_SIZE = 25;
+  let routeMapInstance = null;
 
   // ---------- persistence ----------
   function loadState(){
@@ -245,7 +292,12 @@
     }catch(e){}
   }
   function saveRuns(){
-    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(runs)); }catch(e){}
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(runs));
+    }catch(e){
+      console.error(e);
+      alert("Your run log is too large for this browser's storage to hold (it's full). Use Export data now to back up what you have — new runs may not be saved until you free up space (e.g. by clearing older runs).");
+    }
   }
   function saveSettings(){
     try{ localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }catch(e){}
@@ -514,8 +566,58 @@
       splits,
       decoupling,
       paceStdDev,
-      pointCount: points.length
+      pointCount: points.length,
+      _points: points,
+      _distArr: distArr
     };
+  }
+
+  // ---------- route + best efforts (computed once at import time, from computeStats' cleaned points/distArr) ----------
+  function buildRoute(points, distArr, maxPoints){
+    maxPoints = maxPoints || 150;
+    const hasGps = points.some(p=>p.lat!=null && p.lon!=null);
+    if(!hasGps) return null;
+    const step = Math.max(1, Math.ceil(points.length / maxPoints));
+    const route = [];
+    for(let i=0;i<points.length;i+=step){
+      const p = points[i];
+      if(p.lat!=null && p.lon!=null){
+        route.push([Math.round(p.lat*1e6)/1e6, Math.round(p.lon*1e6)/1e6, p.ele!=null?Math.round(p.ele*10)/10:null, Math.round(distArr[i])]);
+      }
+    }
+    const lastIdx = points.length-1;
+    const lastP = points[lastIdx];
+    if(lastP.lat!=null && lastP.lon!=null && (route.length===0 || route[route.length-1][3] !== Math.round(distArr[lastIdx]))){
+      route.push([Math.round(lastP.lat*1e6)/1e6, Math.round(lastP.lon*1e6)/1e6, lastP.ele!=null?Math.round(lastP.ele*10)/10:null, Math.round(distArr[lastIdx])]);
+    }
+    return route.length >= 2 ? route : null;
+  }
+
+  const RACE_DISTANCES = [
+    { key:'1mi', label:'1 mile', m: 1609.34 },
+    { key:'5k', label:'5K', m: 5000 },
+    { key:'10k', label:'10K', m: 10000 },
+    { key:'half', label:'Half marathon', m: 21097.5 },
+    { key:'marathon', label:'Marathon', m: 42195 }
+  ];
+
+  function computeBestEfforts(points, distArr){
+    const totalDist = distArr[distArr.length-1];
+    const efforts = {};
+    for(const rd of RACE_DISTANCES){
+      if(totalDist < rd.m) continue;
+      let best = Infinity;
+      let j = 0;
+      for(let i=0;i<points.length;i++){
+        if(j < i) j = i;
+        while(j < points.length && distArr[j]-distArr[i] < rd.m) j++;
+        if(j >= points.length) break;
+        const timeSec = (points[j].t - points[i].t)/1000;
+        if(timeSec < best) best = timeSec;
+      }
+      if(best < Infinity) efforts[rd.key] = best;
+    }
+    return efforts;
   }
 
   // ---------- formatting ----------
@@ -770,6 +872,14 @@ ${recentSummary}`;
     });
   }
 
+  function finalizeStats(stats){
+    stats.route = buildRoute(stats._points, stats._distArr);
+    stats.bestEfforts = computeBestEfforts(stats._points, stats._distArr);
+    delete stats._points;
+    delete stats._distArr;
+    return stats;
+  }
+
   function isDuplicate(stats, results){
     return runs.some(r => Math.abs(r.stats.startTime - stats.startTime) < 5000 && Math.abs(r.stats.totalDistM - stats.totalDistM) < 20)
       || results.newRuns.some(r => Math.abs(r.stats.startTime - stats.startTime) < 5000 && Math.abs(r.stats.totalDistM - stats.totalDistM) < 20);
@@ -819,6 +929,7 @@ ${recentSummary}`;
         return;
       }
       const sport = normalizeSport(messages.sessionMesgs && messages.sessionMesgs[0] ? messages.sessionMesgs[0].sport : null);
+      finalizeStats(stats);
       const id = `${stats.startTime}-${Math.round(stats.totalDistM)}-${Math.random().toString(36).slice(2,7)}`;
       results.newRuns.push({ id, name: filename, stats, sport });
       results.imported++;
@@ -851,6 +962,7 @@ ${recentSummary}`;
         results.duplicates++;
         return;
       }
+      finalizeStats(stats);
       const id = `${stats.startTime}-${Math.round(stats.totalDistM)}-${Math.random().toString(36).slice(2,7)}`;
       results.newRuns.push({ id, name: filename, stats, sport });
       results.imported++;
@@ -928,6 +1040,191 @@ ${recentSummary}`;
     if(results.errors.length) parts.push(`${results.errors.length} file${results.errors.length!==1?'s':''} failed to parse: ${results.errors.slice(0,5).join('; ')}${results.errors.length>5?'…':''}`);
     if(parts.length) alert(parts.join('\n'));
     else alert('No new runs found in the file(s) you selected.');
+  }
+
+  // ---------- personal records ----------
+  function computePersonalRecords(){
+    const records = {};
+    visibleRuns().forEach(run=>{
+      const be = run.stats.bestEfforts;
+      if(!be) return;
+      for(const key in be){
+        const t = be[key];
+        if(!records[key] || t < records[key].timeSec){
+          records[key] = { timeSec: t, runId: run.id, date: run.stats.startTime };
+        }
+      }
+    });
+    return records;
+  }
+
+  function renderRecordsTable(){
+    const tbody = document.querySelector('#recordsTable tbody');
+    if(!tbody) return;
+    const records = computePersonalRecords();
+    tbody.innerHTML = RACE_DISTANCES.map(rd=>{
+      const rec = records[rd.key];
+      if(!rec) return `<tr><td>${rd.label}</td><td colspan="3" class="sub">Not enough distance covered yet</td></tr>`;
+      const paceSecPerKm = rec.timeSec/(rd.m/1000);
+      return `<tr>
+        <td>${rd.label}</td>
+        <td>${fmtDur(rec.timeSec)}</td>
+        <td>${fmtPace(paceSecPerKm, settings.units)}</td>
+        <td><a class="linklike" data-view-run="${rec.runId}">${fmtDate(rec.date)}</a></td>
+      </tr>`;
+    }).join('');
+    tbody.querySelectorAll('[data-view-run]').forEach(el=>{
+      el.addEventListener('click', ()=>openDetail(el.getAttribute('data-view-run')));
+    });
+  }
+
+  // ---------- race predictor (Riegel formula) ----------
+  function computeRacePredictor(){
+    const records = computePersonalRecords();
+    const preference = ['10k','5k','half','1mi','marathon'];
+    let base = null;
+    for(const key of preference){
+      if(records[key]){ base = { key, ...records[key] }; break; }
+    }
+    if(!base) return null;
+    const baseDist = RACE_DISTANCES.find(rd=>rd.key===base.key);
+    const predictions = RACE_DISTANCES.filter(rd=>rd.key !== base.key).map(rd=>{
+      const predictedSec = base.timeSec * Math.pow(rd.m/baseDist.m, 1.06);
+      return { key: rd.key, label: rd.label, predictedSec, paceSecPerKm: predictedSec/(rd.m/1000) };
+    });
+    return { baseLabel: baseDist.label, baseTimeSec: base.timeSec, predictions };
+  }
+
+  function renderPredictor(){
+    const body = document.getElementById('predictorBody');
+    if(!body) return;
+    const pred = computeRacePredictor();
+    if(!pred){
+      body.innerHTML = '<span class="sub">Log a run covering at least 5K to unlock race predictions.</span>';
+      return;
+    }
+    body.innerHTML = `
+      <div class="sub" style="margin-bottom:10px;">Based on your best ${pred.baseLabel} effort (${fmtDur(pred.baseTimeSec)}), using the Riegel formula. Take these as rough estimates, not guarantees.</div>
+      <table>
+        <thead><tr><th>Distance</th><th>Predicted time</th><th>Predicted pace</th></tr></thead>
+        <tbody>
+          ${pred.predictions.map(p=>`<tr><td>${p.label}</td><td>${fmtDur(p.predictedSec)}</td><td>${fmtPace(p.paceSecPerKm, settings.units)}</td></tr>`).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  // ---------- gear ----------
+  const GEAR_KEY = 'runAnalyzer.gear.v1';
+  let gear = [];
+  function loadGear(){
+    try{ const raw = localStorage.getItem(GEAR_KEY); if(raw) gear = JSON.parse(raw); }catch(e){ gear = []; }
+  }
+  function saveGear(){
+    try{ localStorage.setItem(GEAR_KEY, JSON.stringify(gear)); }catch(e){}
+  }
+  function gearMileage(gearId){
+    return runs.filter(r=>r.shoeId===gearId).reduce((a,r)=>a+r.stats.totalDistM,0);
+  }
+  function gearRunCount(gearId){
+    return runs.filter(r=>r.shoeId===gearId).length;
+  }
+  function renderGearTable(){
+    const tbody = document.querySelector('#gearTable tbody');
+    if(!tbody) return;
+    if(!gear.length){
+      tbody.innerHTML = `<tr><td colspan="5" class="sub">No shoes added yet.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = gear.map(g=>{
+      const distM = gearMileage(g.id);
+      const miles = distM/1609.34;
+      let badge = 'good', badgeLabel = 'Fresh';
+      if(miles > 450){ badge='bad'; badgeLabel='Retire soon'; }
+      else if(miles > 300){ badge='warn'; badgeLabel='Getting worn'; }
+      return `<tr>
+        <td>${g.name}</td>
+        <td>${fmtDist(distM, settings.units)} ${unitLabel()} <span class="badge ${badge}" style="margin-left:6px;">${badgeLabel}</span></td>
+        <td>${gearRunCount(g.id)}</td>
+        <td><a class="linklike" data-gear-rename="${g.id}">Rename</a></td>
+        <td><a class="linklike" data-gear-delete="${g.id}">Delete</a></td>
+      </tr>`;
+    }).join('');
+    tbody.querySelectorAll('[data-gear-delete]').forEach(el=>{
+      el.addEventListener('click', ()=>{
+        const id = el.getAttribute('data-gear-delete');
+        if(!confirm('Delete this shoe? Runs assigned to it will become unassigned.')) return;
+        gear = gear.filter(g=>g.id!==id);
+        runs.forEach(r=>{ if(r.shoeId===id) r.shoeId = null; });
+        saveGear(); saveRuns(); renderTrendsPanel();
+      });
+    });
+    tbody.querySelectorAll('[data-gear-rename]').forEach(el=>{
+      el.addEventListener('click', ()=>{
+        const id = el.getAttribute('data-gear-rename');
+        const g = gear.find(x=>x.id===id);
+        const name = prompt('Rename shoe', g.name);
+        if(name && name.trim()){ g.name = name.trim(); saveGear(); renderTrendsPanel(); }
+      });
+    });
+  }
+
+  // ---------- export / import ----------
+  function exportData(){
+    const payload = { exportedAt: new Date().toISOString(), runs, gear };
+    const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `run-analyzer-backup-${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  async function importData(file){
+    let payload;
+    try{
+      const text = await readFileAsText(file);
+      payload = JSON.parse(text);
+    }catch(err){
+      alert(`Couldn't read that file: ${err.message}`);
+      return;
+    }
+    if(!payload || !Array.isArray(payload.runs)){
+      alert("That file doesn't look like a Run Analyzer backup.");
+      return;
+    }
+    const results = { newRuns: [], imported: 0, duplicates: 0, skipped: [], errors: [] };
+    payload.runs.forEach(r=>{
+      if(!r || !r.stats || r.stats.startTime==null || r.stats.totalDistM==null){
+        results.skipped.push(`${(r && r.name) || 'unnamed run'} (malformed entry)`);
+        return;
+      }
+      if(isDuplicate(r.stats, results)){ results.duplicates++; return; }
+      results.newRuns.push(r);
+      results.imported++;
+    });
+    if(results.newRuns.length){
+      runs = runs.concat(results.newRuns);
+      runs.sort((a,b)=>a.stats.startTime-b.stats.startTime);
+      saveRuns();
+    }
+    if(Array.isArray(payload.gear)){
+      payload.gear.forEach(g=>{
+        if(g && g.name && !gear.some(existing=>existing.name===g.name)){
+          gear.push({ id: g.id || (Date.now().toString(36)+Math.random().toString(36).slice(2,6)), name: g.name });
+        }
+      });
+      saveGear();
+    }
+    renderAll();
+    const parts = [];
+    if(results.imported) parts.push(`Imported ${results.imported} run${results.imported!==1?'s':''}.`);
+    if(results.duplicates) parts.push(`Skipped ${results.duplicates} duplicate${results.duplicates!==1?'s':''} already in your log.`);
+    if(results.skipped.length) parts.push(`Ignored ${results.skipped.length} malformed entr${results.skipped.length!==1?'ies':'y'}.`);
+    alert(parts.length ? parts.join('\n') : 'No new runs found in that backup file.');
   }
 
   // ---------- rendering ----------
@@ -1012,6 +1309,10 @@ ${recentSummary}`;
     const wkVals = wkKeys.map(k=> settings.units==='mi' ? weeks[k]/1609.34 : weeks[k]/1000);
     drawBarChart('mileageChart', wkLabels, wkVals, `Distance (${unitLabel()})`);
 
+    renderRecordsTable();
+    renderPredictor();
+    renderGearTable();
+
     document.getElementById('trendInsights').innerHTML = generateTrendInsights().map(i=>
       `<li><span class="dot ${i.level}"></span><span>${i.text}</span></li>`
     ).join('');
@@ -1050,6 +1351,43 @@ ${recentSummary}`;
           x:{ ticks:{ color:'#8a8a8a', font:{family:"'Oswald', sans-serif"}, autoSkip:true, maxTicksLimit:12, maxRotation:60 }, grid:{ color:'#272727' } }
         },
         plugins:{ legend:{ labels:{ color:'#f5f5f5', font:{family:"'Oswald', sans-serif", size:11} } } }
+      }
+    });
+  }
+
+  function drawRouteMap(route){
+    const el = document.getElementById('routeMap');
+    if(!el || typeof L === 'undefined') return;
+    if(routeMapInstance){ routeMapInstance.remove(); routeMapInstance = null; }
+    const coords = route.map(p => [p[0], p[1]]);
+    routeMapInstance = L.map('routeMap', { attributionControl:true });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(routeMapInstance);
+    const line = L.polyline(coords, { color:'#c9a24c', weight:4 }).addTo(routeMapInstance);
+    routeMapInstance.fitBounds(line.getBounds(), { padding:[20,20] });
+  }
+
+  function drawElevationChart(route){
+    const canvas = document.getElementById('elevChart');
+    if(!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if(charts['elevChart']) charts['elevChart'].destroy();
+    const toDistUnit = m => settings.units==='mi' ? m/1609.34 : m/1000;
+    const toEleUnit = m => settings.units==='mi' ? m*3.28084 : m;
+    const labels = route.map(p => toDistUnit(p[3]).toFixed(2));
+    const data = route.map(p => p[2]!=null ? toEleUnit(p[2]) : null);
+    charts['elevChart'] = new Chart(ctx, {
+      type:'line',
+      data:{ labels, datasets:[{ label:`Elevation (${settings.units==='mi'?'ft':'m'})`, data, borderColor:'#c9a24c', backgroundColor:'rgba(201,162,76,.18)', fill:true, tension:.3, pointRadius:0, spanGaps:true }]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        scales:{
+          y:{ ticks:{ color:'#8a8a8a', font:{family:"'Oswald', sans-serif"} }, grid:{ color:'#272727' } },
+          x:{ title:{ display:true, text:`Distance (${unitLabel()})`, color:'#8a8a8a', font:{family:"'Oswald', sans-serif"} }, ticks:{ color:'#8a8a8a', font:{family:"'Oswald', sans-serif"}, autoSkip:true, maxTicksLimit:8 }, grid:{ color:'#272727' } }
+        },
+        plugins:{ legend:{ display:false } }
       }
     });
   }
@@ -1109,7 +1447,14 @@ ${recentSummary}`;
       <div class="card">
         <div class="run-title">
           <h2>${fmtDate(s.startTime)} — ${run.name}</h2>
-          <div>
+          <div style="display:flex; align-items:flex-end; gap:10px;">
+            <div class="field">
+              <label>Shoe</label>
+              <select id="shoeSelect">
+                <option value="">— none —</option>
+                ${gear.map(g=>`<option value="${g.id}" ${run.shoeId===g.id?'selected':''}>${g.name}</option>`).join('')}
+              </select>
+            </div>
             <button class="ghost small" id="backToTrendsBtn">← Back to trends</button>
             <button class="ghost small" id="deleteRunBtn">Delete run</button>
           </div>
@@ -1128,6 +1473,18 @@ ${recentSummary}`;
         </div>
         ${hrZoneHtml}
       </div>
+
+      ${s.route && s.route.length ? `
+      <div class="two-col">
+        <div class="card">
+          <div class="run-title"><h2>Route</h2></div>
+          <div id="routeMap" style="height:280px; margin-top:10px; border:1px solid var(--border);"></div>
+        </div>
+        <div class="card">
+          <div class="run-title"><h2>Elevation profile</h2></div>
+          <div class="chart-box"><canvas id="elevChart"></canvas></div>
+        </div>
+      </div>` : ''}
 
       <div class="card">
         <div class="run-title">
@@ -1160,6 +1517,14 @@ ${recentSummary}`;
       </div>
     `;
     panel.classList.remove('hidden');
+    if(s.route && s.route.length){
+      drawRouteMap(s.route);
+      drawElevationChart(s.route);
+    }
+    document.getElementById('shoeSelect').addEventListener('change', e=>{
+      run.shoeId = e.target.value || null;
+      saveRuns();
+    });
     document.getElementById('aiNoteBtn').addEventListener('click', ()=>{ generateAiNote(run); });
     document.getElementById('backToTrendsBtn').addEventListener('click', ()=>{
       document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
@@ -1218,6 +1583,23 @@ ${recentSummary}`;
     activeRunId = null;
     renderAll();
   });
+  document.getElementById('exportDataBtn').addEventListener('click', exportData);
+  document.getElementById('importDataBtn').addEventListener('click', ()=>{
+    document.getElementById('importDataInput').click();
+  });
+  document.getElementById('importDataInput').addEventListener('change', e=>{
+    if(e.target.files.length) importData(e.target.files[0]);
+    e.target.value = '';
+  });
+  document.getElementById('addGearBtn').addEventListener('click', ()=>{
+    const input = document.getElementById('newGearInput');
+    const name = input.value.trim();
+    if(!name) return;
+    gear.push({ id: Date.now().toString(36)+Math.random().toString(36).slice(2,6), name });
+    input.value = '';
+    saveGear();
+    renderTrendsPanel();
+  });
   document.querySelectorAll('.tab').forEach(tab=>{
     tab.addEventListener('click', ()=>{
       document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
@@ -1238,6 +1620,7 @@ ${recentSummary}`;
 
   // init
   loadState();
+  loadGear();
   document.getElementById('unitSelect').value = settings.units;
   document.getElementById('sportFilterSelect').value = settings.sportFilter;
   document.getElementById('trendRangeSelect').value = settings.trendRange;
