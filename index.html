@@ -198,10 +198,19 @@
 
   <div id="trendsPanel" class="hidden">
     <div class="card" id="runsTableSection">
-      <div class="run-title"><h2>All runs</h2><span class="sub" id="runCount"></span></div>
+      <div class="run-title">
+        <h2>All runs</h2>
+        <span class="sub" id="runCount"></span>
+      </div>
+      <div id="bulkActionsBar" style="display:flex; align-items:center; gap:14px; margin:10px 0; font-size:13px;">
+        <span class="sub" id="selectionSummary"></span>
+        <a class="linklike" id="selectAllMatchingLink">Select all matching</a>
+        <a class="linklike" id="clearSelectionLink">Clear selection</a>
+        <button class="small" id="deleteSelectedBtn" style="display:none;">Delete selected</button>
+      </div>
       <div style="overflow-x:auto;">
         <table id="runsTable">
-          <thead><tr><th>Date</th><th>Type</th><th>Distance</th><th>Duration</th><th>Pace</th><th>Avg HR</th><th>Elev gain</th><th></th></tr></thead>
+          <thead><tr><th style="width:30px;"><input type="checkbox" id="selectAllCheckbox"></th><th>Date</th><th>Type</th><th>Distance</th><th>Duration</th><th>Pace</th><th>Avg HR</th><th>Elev gain</th><th></th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -279,6 +288,7 @@
   let currentPage = 1;
   const PAGE_SIZE = 25;
   let routeMapInstance = null;
+  let selectedRunIds = new Set();
 
   // ---------- persistence ----------
   function loadState(){
@@ -1252,6 +1262,10 @@ ${recentSummary}`;
     if(currentPage < 1) currentPage = 1;
     const pageItems = descAll.slice((currentPage-1)*PAGE_SIZE, currentPage*PAGE_SIZE);
 
+    // drop selections that no longer exist (e.g. deleted elsewhere)
+    const filteredIds = new Set(filtered.map(r=>r.id));
+    Array.from(selectedRunIds).forEach(id=>{ if(!filteredIds.has(id)) selectedRunIds.delete(id); });
+
     const tbody = document.querySelector('#runsTable tbody');
     tbody.innerHTML = '';
     pageItems.forEach(run=>{
@@ -1259,6 +1273,7 @@ ${recentSummary}`;
       const tr = document.createElement('tr');
       tr.className = 'clickable';
       tr.innerHTML = `
+        <td><input type="checkbox" class="row-select" data-id="${run.id}" ${selectedRunIds.has(run.id)?'checked':''}></td>
         <td>${fmtDate(s.startTime)}</td>
         <td>${run.sport || 'Running'}</td>
         <td>${fmtDist(s.totalDistM, settings.units)} ${unitLabel()}</td>
@@ -1269,8 +1284,16 @@ ${recentSummary}`;
         <td><a class="linklike" data-id="${run.id}">View →</a></td>
       `;
       tr.addEventListener('click', ()=>openDetail(run.id));
+      const cb = tr.querySelector('.row-select');
+      cb.addEventListener('click', e=> e.stopPropagation());
+      cb.addEventListener('change', e=>{
+        if(e.target.checked) selectedRunIds.add(run.id);
+        else selectedRunIds.delete(run.id);
+        updateBulkActionsBar(pageItems);
+      });
       tbody.appendChild(tr);
     });
+    updateBulkActionsBar(pageItems);
 
     const pag = document.getElementById('runsPagination');
     if(descAll.length > PAGE_SIZE){
@@ -1318,6 +1341,32 @@ ${recentSummary}`;
     ).join('');
 
     document.getElementById('trendsPanel').classList.remove('hidden');
+  }
+
+  function updateBulkActionsBar(pageItems){
+    const items = pageItems || Array.from(document.querySelectorAll('#runsTable tbody .row-select')).map(cb=>({id: cb.getAttribute('data-id')}));
+    const n = selectedRunIds.size;
+    const summary = document.getElementById('selectionSummary');
+    const delBtn = document.getElementById('deleteSelectedBtn');
+    summary.textContent = n ? `${n} selected` : '';
+    delBtn.style.display = n ? 'inline-block' : 'none';
+
+    const selectAllCb = document.getElementById('selectAllCheckbox');
+    const pageIds = items.map(r=> r.id !== undefined ? r.id : r);
+    const pageSelectedCount = pageIds.filter(id=>selectedRunIds.has(id)).length;
+    if(pageIds.length === 0){
+      selectAllCb.checked = false;
+      selectAllCb.indeterminate = false;
+    } else if(pageSelectedCount === 0){
+      selectAllCb.checked = false;
+      selectAllCb.indeterminate = false;
+    } else if(pageSelectedCount === pageIds.length){
+      selectAllCb.checked = true;
+      selectAllCb.indeterminate = false;
+    } else {
+      selectAllCb.checked = false;
+      selectAllCb.indeterminate = true;
+    }
   }
 
   function drawLineChart(canvasId, labels, data, label, invertY){
@@ -1581,6 +1630,34 @@ ${recentSummary}`;
     runs = [];
     saveRuns();
     activeRunId = null;
+    selectedRunIds.clear();
+    renderAll();
+  });
+  document.getElementById('selectAllCheckbox').addEventListener('change', e=>{
+    document.querySelectorAll('#runsTable tbody .row-select').forEach(cb=>{
+      cb.checked = e.target.checked;
+      const id = cb.getAttribute('data-id');
+      if(e.target.checked) selectedRunIds.add(id);
+      else selectedRunIds.delete(id);
+    });
+    updateBulkActionsBar();
+  });
+  document.getElementById('selectAllMatchingLink').addEventListener('click', ()=>{
+    visibleRuns().forEach(r=>selectedRunIds.add(r.id));
+    renderTrendsPanel();
+  });
+  document.getElementById('clearSelectionLink').addEventListener('click', ()=>{
+    selectedRunIds.clear();
+    renderTrendsPanel();
+  });
+  document.getElementById('deleteSelectedBtn').addEventListener('click', ()=>{
+    const n = selectedRunIds.size;
+    if(!n) return;
+    if(!confirm(`Delete ${n} selected run${n!==1?'s':''}? This cannot be undone.`)) return;
+    runs = runs.filter(r=>!selectedRunIds.has(r.id));
+    if(activeRunId && selectedRunIds.has(activeRunId)) activeRunId = null;
+    selectedRunIds.clear();
+    saveRuns();
     renderAll();
   });
   document.getElementById('exportDataBtn').addEventListener('click', exportData);
