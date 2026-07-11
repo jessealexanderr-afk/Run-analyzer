@@ -9,104 +9,104 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=UnifrakturMaguntia&family=IM+Fell+English:ital@0;1&family=IM+Fell+English+SC&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=UnifrakturMaguntia&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#0a0908; --panel:#161009; --panel2:#1e150c; --border:#4a3220; --grid:#4a221c;
-    --text:#e6d3a3; --sub:#a9895f; --accent:#c9a24c; --accent2:#8a9296;
-    --good:#7a9b6e; --warn:#c9a227; --bad:#9b3a2c;
+    --bg:#000000; --panel:#0a0a0a; --panel2:#141414; --border:#272727; --border-strong:#ffffff; --grid:rgba(201,162,76,.05);
+    --text:#f5f5f5; --sub:#8a8a8a; --accent:#c9a24c; --accent2:#ffffff;
+    --good:#5fd97a; --warn:#e8b93f; --bad:#ff5c5c;
   }
   *{box-sizing:border-box;}
   html{scroll-behavior:smooth;}
   html,body{height:100%;}
   body{
-    margin:0; font-family:'IM Fell English', Georgia, 'Times New Roman', serif;
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;
     background:
       repeating-linear-gradient(0deg, transparent 0 39px, var(--grid) 39px 40px),
       repeating-linear-gradient(90deg, transparent 0 39px, var(--grid) 39px 40px),
       var(--bg);
     color:var(--text); padding:24px 16px 60px; position:relative;
   }
-  body::before{
-    content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
-    background:radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,.6) 100%);
-  }
   .wrap{max-width:1100px; margin:0 auto; position:relative; z-index:1;}
   h1{
-    font-family:'UnifrakturMaguntia', 'IM Fell English', serif; font-weight:400;
-    font-size:42px; margin:0 0 8px; letter-spacing:.02em; text-align:center;
-    text-shadow:0 0 14px rgba(230,211,163,.18);
+    font-family:'UnifrakturMaguntia', serif; font-weight:400;
+    font-size:44px; margin:0 0 10px; letter-spacing:.02em; text-align:center;
+    padding-bottom:16px; border-bottom:1px solid var(--border-strong);
   }
-  .sub{color:var(--sub); font-size:14px; margin-bottom:24px; font-style:italic;}
-  h1 + .sub{text-align:center;}
+  .sub{color:var(--sub); font-size:13px; margin-bottom:24px;}
+  h1 + .sub{text-align:center; text-transform:uppercase; letter-spacing:.08em; font-family:'Oswald',sans-serif; font-weight:500;}
   .card{
-    background:var(--panel); border:1px solid var(--border); border-radius:2px;
-    padding:20px; margin-bottom:20px; box-shadow:inset 0 0 0 1px rgba(230,211,163,.04), 0 3px 10px rgba(0,0,0,.5);
+    background:var(--panel); border:1px solid var(--border); border-radius:0;
+    padding:20px; margin-bottom:20px;
   }
   .row{display:flex; gap:16px; flex-wrap:wrap; align-items:center;}
   .drop{
-    border:2px dashed var(--border); border-radius:2px; padding:32px;
+    border:1px solid var(--border); border-radius:0; padding:32px;
     text-align:center; cursor:pointer; transition:border-color .15s, background .15s;
   }
-  .drop:hover, .drop.drag{border-color:var(--accent); background:#20160c;}
+  .drop:hover, .drop.drag{border-color:var(--accent2); background:var(--panel2);}
   .drop input{display:none;}
-  .drop .big{font-size:16px; margin-bottom:6px; font-family:'IM Fell English SC','IM Fell English',serif; letter-spacing:.03em;}
+  .drop .big{font-size:15px; margin-bottom:6px; font-family:'Oswald',sans-serif; font-weight:600; letter-spacing:.04em; text-transform:uppercase;}
   .drop .small{color:var(--sub); font-size:13px;}
   button{
-    background:linear-gradient(180deg,#c9a24c,#93711f); color:#160f08; border:1px solid #5a3f1f; border-radius:2px;
-    padding:9px 16px; font-weight:700; font-size:13px; cursor:pointer;
-    font-family:'IM Fell English SC','IM Fell English',serif; letter-spacing:.04em; text-transform:uppercase;
+    background:var(--text); color:#000; border:1px solid var(--text); border-radius:0;
+    padding:10px 18px; font-weight:600; font-size:12px; cursor:pointer;
+    font-family:'Oswald',sans-serif; letter-spacing:.08em; text-transform:uppercase;
+    transition:background .12s, color .12s;
   }
-  button.ghost{background:transparent; color:var(--text); border:1px solid var(--border);}
-  button.small{padding:5px 10px; font-size:12px;}
-  input[type=number], select{
+  button:hover{background:var(--accent); border-color:var(--accent); color:#000;}
+  button.ghost{background:transparent; color:var(--text); border:1px solid var(--border-strong);}
+  button.ghost:hover{background:var(--text); color:#000;}
+  button.small{padding:6px 12px; font-size:11px;}
+  input[type=number], input[type=password], select{
     background:var(--panel2); border:1px solid var(--border); color:var(--text);
-    border-radius:2px; padding:7px 10px; font-size:13px; font-family:'Courier Prime', monospace;
+    border-radius:0; padding:8px 10px; font-size:13px; font-family:'Oswald',sans-serif;
   }
-  label{font-size:13px; color:var(--sub); font-style:italic;}
+  label{font-size:11px; color:var(--sub); text-transform:uppercase; letter-spacing:.06em; font-family:'Oswald',sans-serif; font-weight:500;}
   .settings{display:flex; gap:20px; flex-wrap:wrap; align-items:flex-end;}
-  .settings .field{display:flex; flex-direction:column; gap:4px;}
-  table{width:100%; border-collapse:collapse; font-size:13px; font-family:'Courier Prime', monospace;}
-  th, td{padding:8px 10px; text-align:left; border-bottom:1px solid var(--border);}
-  th{color:var(--sub); font-weight:700; font-size:12px; text-transform:uppercase; letter-spacing:.03em; font-family:'IM Fell English SC','IM Fell English',serif;}
+  .settings .field{display:flex; flex-direction:column; gap:6px;}
+  table{width:100%; border-collapse:collapse; font-size:13px;}
+  th, td{padding:10px 10px; text-align:left; border-bottom:1px solid var(--border);}
+  th{color:var(--sub); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.06em; font-family:'Oswald',sans-serif; border-bottom:1px solid var(--border-strong);}
   tr.clickable{cursor:pointer;}
   tr.clickable:hover{background:var(--panel2);}
-  .stat-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); gap:14px; margin:14px 0;}
-  .stat{background:var(--panel2); border:1px solid var(--border); border-radius:2px; padding:12px;}
-  .stat .label{font-size:11px; color:var(--sub); text-transform:uppercase; letter-spacing:.04em; font-family:'IM Fell English SC','IM Fell English',serif;}
-  .stat .value{font-size:20px; font-weight:700; margin-top:4px; font-family:'Courier Prime', monospace;}
+  .stat-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); gap:1px; margin:14px 0; background:var(--border);}
+  .stat{background:var(--panel2); padding:14px;}
+  .stat .label{font-size:10px; color:var(--sub); text-transform:uppercase; letter-spacing:.06em; font-family:'Oswald',sans-serif; font-weight:500;}
+  .stat .value{font-size:24px; font-weight:700; margin-top:6px; font-family:'Oswald',sans-serif;}
   .stat .unit{font-size:12px; color:var(--sub); font-weight:400;}
   .badge{
-    display:inline-block; padding:2px 8px; border-radius:2px; font-size:11px; font-weight:700;
-    text-transform:uppercase; letter-spacing:.03em;
+    display:inline-block; padding:3px 9px; border-radius:0; font-size:10px; font-weight:600;
+    text-transform:uppercase; letter-spacing:.05em; font-family:'Oswald',sans-serif;
   }
-  .badge.good{background:rgba(122,155,110,.15); color:var(--good);}
-  .badge.warn{background:rgba(201,162,39,.15); color:var(--warn);}
-  .badge.bad{background:rgba(155,58,44,.18); color:var(--bad);}
+  .badge.good{background:rgba(95,217,122,.12); color:var(--good);}
+  .badge.warn{background:rgba(232,185,63,.12); color:var(--warn);}
+  .badge.bad{background:rgba(255,92,92,.14); color:var(--bad);}
   .insights{list-style:none; padding:0; margin:0;}
   .insights li{
-    display:flex; gap:10px; padding:10px 0; border-bottom:1px solid var(--border); font-size:14px; line-height:1.5;
+    display:flex; gap:10px; padding:12px 0; border-bottom:1px solid var(--border); font-size:14px; line-height:1.55;
   }
   .insights li:last-child{border-bottom:none;}
   .insights li .dot{
     flex-shrink:0; width:8px; height:8px; border-radius:50%; margin-top:6px;
   }
-  .dot.good{background:var(--good);} .dot.warn{background:var(--warn);} .dot.bad{background:var(--bad);} .dot.info{background:var(--accent2);}
-  .tabs{display:flex; gap:6px; margin-bottom:16px;}
+  .dot.good{background:var(--good);} .dot.warn{background:var(--warn);} .dot.bad{background:var(--bad);} .dot.info{background:var(--accent);}
+  .tabs{display:flex; gap:24px; margin-bottom:16px; border-bottom:1px solid var(--border);}
   .tab{
-    padding:8px 14px; border-radius:2px; font-size:13px; cursor:pointer; color:var(--sub); font-weight:700;
-    font-family:'IM Fell English SC','IM Fell English',serif; letter-spacing:.03em;
+    padding:10px 2px; font-size:12px; cursor:pointer; color:var(--sub); font-weight:600;
+    font-family:'Oswald',sans-serif; letter-spacing:.08em; text-transform:uppercase;
+    border-bottom:2px solid transparent; margin-bottom:-1px;
   }
-  .tab.active{background:var(--panel2); color:var(--text); border:1px solid var(--border);}
+  .tab.active{color:var(--text); border-bottom-color:var(--accent);}
   .hidden{display:none !important;}
   .chart-box{position:relative; height:260px; margin-top:10px;}
   .run-title{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;}
-  .run-title h2{margin:0; font-size:19px; font-family:'IM Fell English SC','IM Fell English',serif; font-weight:400; letter-spacing:.03em;}
-  .empty{color:var(--sub); font-size:14px; text-align:center; padding:30px 0; font-style:italic;}
+  .run-title h2{margin:0; font-size:16px; font-family:'Oswald',sans-serif; font-weight:600; letter-spacing:.05em; text-transform:uppercase;}
+  .empty{color:var(--sub); font-size:14px; text-align:center; padding:30px 0;}
   .split-bar{height:6px; border-radius:0; background:var(--accent);}
   .two-col{display:grid; grid-template-columns:1fr 1fr; gap:20px;}
   @media (max-width:720px){.two-col{grid-template-columns:1fr;}}
-  a.linklike{color:var(--accent2); cursor:pointer; text-decoration:none; font-size:13px;}
+  a.linklike{color:var(--accent); cursor:pointer; text-decoration:none; font-size:13px; text-transform:uppercase; letter-spacing:.04em; font-family:'Oswald',sans-serif; font-weight:500;}
 </style>
 </head>
 <body>
@@ -166,7 +166,7 @@
       </div>
     </div>
     <div class="sub" style="margin:10px 0 0; font-size:12px;">
-      Your key is stored only in this browser (localStorage) and calls Anthropic's API directly from your device &mdash; it never touches any server of mine. Each coaching note costs a fraction of a cent. Get a key at <span style="font-family:'Courier Prime',monospace;">console.anthropic.com</span>.
+      Your key is stored only in this browser (localStorage) and calls Anthropic's API directly from your device &mdash; it never touches any server of mine. Each coaching note costs a fraction of a cent. Get a key at <span style="font-family:'Oswald',sans-serif;">console.anthropic.com</span>.
     </div>
   </div>
 
@@ -1026,14 +1026,14 @@ ${recentSummary}`;
     const dense = data.length > 60;
     charts[canvasId] = new Chart(ctx, {
       type:'line',
-      data:{ labels, datasets:[{ label, data, borderColor:'#c9a24c', backgroundColor:'rgba(201,162,76,.15)', tension:.3, spanGaps:true, pointRadius: dense?0:3, pointHoverRadius: dense?3:5 }]},
+      data:{ labels, datasets:[{ label, data, borderColor:'#c9a24c', backgroundColor:'rgba(201,162,76,.12)', tension:.2, spanGaps:true, pointRadius: dense?0:3, pointHoverRadius: dense?3:5 }]},
       options:{
         responsive:true, maintainAspectRatio:false,
         scales:{
-          y:{ reverse: !!invertY, min: range.min, max: range.max, ticks:{ color:'#a9895f', font:{family:"'Courier Prime', monospace"} }, grid:{ color:'#3a2418' } },
-          x:{ ticks:{ color:'#a9895f', font:{family:"'Courier Prime', monospace"}, autoSkip:true, maxTicksLimit:10, maxRotation:60 }, grid:{ color:'#3a2418' } }
+          y:{ reverse: !!invertY, min: range.min, max: range.max, ticks:{ color:'#8a8a8a', font:{family:"'Oswald', sans-serif"} }, grid:{ color:'#272727' } },
+          x:{ ticks:{ color:'#8a8a8a', font:{family:"'Oswald', sans-serif"}, autoSkip:true, maxTicksLimit:10, maxRotation:60 }, grid:{ color:'#272727' } }
         },
-        plugins:{ legend:{ labels:{ color:'#e6d3a3', font:{family:"'IM Fell English', serif"} } } }
+        plugins:{ legend:{ labels:{ color:'#f5f5f5', font:{family:"'Oswald', sans-serif", size:11}, textTransform:'uppercase' } } }
       }
     });
   }
@@ -1042,14 +1042,14 @@ ${recentSummary}`;
     if(charts[canvasId]) charts[canvasId].destroy();
     charts[canvasId] = new Chart(ctx, {
       type:'bar',
-      data:{ labels, datasets:[{ label, data, backgroundColor:'#8a9296' }]},
+      data:{ labels, datasets:[{ label, data, backgroundColor:'#f5f5f5' }]},
       options:{
         responsive:true, maintainAspectRatio:false,
         scales:{
-          y:{ ticks:{ color:'#a9895f', font:{family:"'Courier Prime', monospace"} }, grid:{ color:'#3a2418' } },
-          x:{ ticks:{ color:'#a9895f', font:{family:"'Courier Prime', monospace"}, autoSkip:true, maxTicksLimit:12, maxRotation:60 }, grid:{ color:'#3a2418' } }
+          y:{ ticks:{ color:'#8a8a8a', font:{family:"'Oswald', sans-serif"} }, grid:{ color:'#272727' } },
+          x:{ ticks:{ color:'#8a8a8a', font:{family:"'Oswald', sans-serif"}, autoSkip:true, maxTicksLimit:12, maxRotation:60 }, grid:{ color:'#272727' } }
         },
-        plugins:{ legend:{ labels:{ color:'#e6d3a3', font:{family:"'IM Fell English', serif"} } } }
+        plugins:{ legend:{ labels:{ color:'#f5f5f5', font:{family:"'Oswald', sans-serif", size:11} } } }
       }
     });
   }
