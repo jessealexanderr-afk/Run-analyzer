@@ -17,6 +17,7 @@
     --good:#7a9b6e; --warn:#c9a227; --bad:#9b3a2c;
   }
   *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
   html,body{height:100%;}
   body{
     margin:0; font-family:'IM Fell English', Georgia, 'Times New Roman', serif;
@@ -126,8 +127,29 @@
       <div class="field">
         <label>Units</label>
         <select id="unitSelect">
-          <option value="km">Kilometers</option>
           <option value="mi">Miles</option>
+          <option value="km">Kilometers</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Activity type</label>
+        <select id="sportFilterSelect">
+          <option value="Running">Running</option>
+          <option value="Walking">Walking</option>
+          <option value="Hiking">Hiking</option>
+          <option value="Cycling">Cycling</option>
+          <option value="Swimming">Swimming</option>
+          <option value="Other">Other</option>
+          <option value="All">All activities</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Trend range</label>
+        <select id="trendRangeSelect">
+          <option value="3m">Last 3 months</option>
+          <option value="6m">Last 6 months</option>
+          <option value="1y">Last year</option>
+          <option value="all">All time</option>
         </select>
       </div>
       <div class="field">
@@ -153,17 +175,25 @@
     <div class="tab" data-tab="detail">Run Detail</div>
   </div>
 
+  <div id="jumpNav" class="hidden" style="margin-bottom:14px; font-size:13px;">
+    <span class="sub">Jump to:</span>
+    <a class="linklike" href="#runsTableSection">All runs</a> &middot;
+    <a class="linklike" href="#chartsSection">Graphs</a> &middot;
+    <a class="linklike" href="#trendInsightsCard">Training signals</a>
+  </div>
+
   <div id="trendsPanel" class="hidden">
-    <div class="card">
+    <div class="card" id="runsTableSection">
       <div class="run-title"><h2>All runs</h2><span class="sub" id="runCount"></span></div>
       <div style="overflow-x:auto;">
         <table id="runsTable">
-          <thead><tr><th>Date</th><th>Distance</th><th>Duration</th><th>Pace</th><th>Avg HR</th><th>Elev gain</th><th></th></tr></thead>
+          <thead><tr><th>Date</th><th>Type</th><th>Distance</th><th>Duration</th><th>Pace</th><th>Avg HR</th><th>Elev gain</th><th></th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
+      <div id="runsPagination" style="display:flex; align-items:center; gap:10px; margin-top:14px; justify-content:flex-end; font-size:13px;"></div>
     </div>
-    <div class="two-col">
+    <div class="two-col" id="chartsSection">
       <div class="card">
         <div class="run-title"><h2>Pace over time</h2></div>
         <div class="chart-box"><canvas id="paceChart"></canvas></div>
@@ -197,9 +227,11 @@
   const STORAGE_KEY = 'runAnalyzer.runs.v1';
   const SETTINGS_KEY = 'runAnalyzer.settings.v1';
   let runs = [];
-  let settings = { units: 'km', maxHr: null, apiKey: null };
+  let settings = { units: 'mi', maxHr: null, apiKey: null, sportFilter: 'Running', trendRange: '6m' };
   let activeRunId = null;
   let charts = {};
+  let currentPage = 1;
+  const PAGE_SIZE = 25;
 
   // ---------- persistence ----------
   function loadState(){
@@ -236,6 +268,27 @@
     return out;
   }
   function num(v){ const n = parseFloat(v); return isNaN(n) ? null : n; }
+
+  // ---------- sport detection ----------
+  function normalizeSport(raw){
+    if(!raw) return 'Running';
+    const s = String(raw).toLowerCase();
+    if(/run/.test(s)) return 'Running';
+    if(/walk/.test(s)) return 'Walking';
+    if(/hik/.test(s)) return 'Hiking';
+    if(/bik|cycl|ride/.test(s)) return 'Cycling';
+    if(/swim/.test(s)) return 'Swimming';
+    return 'Other';
+  }
+  function extractGpxSport(xml){
+    const trk = findByLocalName(xml, 'trk');
+    const typeEl = trk ? findByLocalName(trk, 'type') : null;
+    return typeEl ? typeEl.textContent.trim() : null;
+  }
+  function extractTcxSport(xml){
+    const activity = findByLocalName(xml, 'Activity');
+    return activity ? activity.getAttribute('Sport') : null;
+  }
 
   // ---------- parsers ----------
   function parseGPX(xml){
@@ -412,6 +465,9 @@
         const ef1 = h1.speed / h1.hr;
         const ef2 = h2.speed / h2.hr;
         decoupling = ((ef1 - ef2) / ef1) * 100; // positive = drift/fatigue (HR rose relative to pace)
+        // guard against divide-by-near-zero HR artifacts producing absurd percentages
+        // (real aerobic decoupling essentially never exceeds ~30-40% even in extreme fatigue)
+        if(!isFinite(decoupling) || Math.abs(decoupling) > 50) decoupling = null;
       }
     }
 
@@ -555,8 +611,27 @@
     return list;
   }
 
+  // ---------- filtering helpers ----------
+  function visibleRuns(){
+    return settings.sportFilter === 'All' ? runs : runs.filter(r => (r.sport || 'Running') === settings.sportFilter);
+  }
+  function withinRange(ts){
+    if(settings.trendRange === 'all') return true;
+    const days = { '3m': 90, '6m': 182, '1y': 365 }[settings.trendRange] || 182;
+    return ts >= Date.now() - days*86400000;
+  }
+  function percentileRange(values, lowP, highP, padFrac){
+    const v = values.filter(x=>x!=null && isFinite(x)).sort((a,b)=>a-b);
+    if(v.length < 4) return { min: undefined, max: undefined };
+    const lo = v[Math.floor((v.length-1)*lowP)];
+    const hi = v[Math.ceil((v.length-1)*highP)];
+    const range = (hi-lo) || Math.abs(hi) || 1;
+    return { min: lo - range*padFrac, max: hi + range*padFrac };
+  }
+
   function generateTrendInsights(){
     const list = [];
+    const runs = visibleRuns();
     if(runs.length < 2){
       list.push({level:'info', text:'Upload a few more runs to unlock trend analysis — pace/HR trends, weekly load, and consistency need at least 2-3 runs.'});
       return list;
@@ -642,7 +717,8 @@ ${recentSummary}`;
     run.aiNoteError = null;
     renderDetailPanel(run.id);
     try{
-      const prompt = buildAiPrompt(run, runs);
+      const sameSport = runs.filter(r => (r.sport || 'Running') === (run.sport || 'Running'));
+      const prompt = buildAiPrompt(run, sameSport);
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -742,8 +818,9 @@ ${recentSummary}`;
         results.duplicates++;
         return;
       }
+      const sport = normalizeSport(messages.sessionMesgs && messages.sessionMesgs[0] ? messages.sessionMesgs[0].sport : null);
       const id = `${stats.startTime}-${Math.round(stats.totalDistM)}-${Math.random().toString(36).slice(2,7)}`;
-      results.newRuns.push({ id, name: filename, stats });
+      results.newRuns.push({ id, name: filename, stats, sport });
       results.imported++;
     }catch(err){
       results.errors.push(`${filename}: ${err.message}`);
@@ -754,11 +831,13 @@ ${recentSummary}`;
     try{
       const xml = new DOMParser().parseFromString(text, 'text/xml');
       if(xml.querySelector('parsererror')) throw new Error('XML parse error');
-      let points;
+      let points, sport;
       if(findByLocalName(xml, 'trkpt')){
         points = parseGPX(xml);
+        sport = normalizeSport(extractGpxSport(xml));
       } else if(findByLocalName(xml, 'Trackpoint')){
         points = parseTCX(xml);
+        sport = normalizeSport(extractTcxSport(xml));
       } else {
         results.skipped.push(`${filename} (unrecognized format)`);
         return;
@@ -773,7 +852,7 @@ ${recentSummary}`;
         return;
       }
       const id = `${stats.startTime}-${Math.round(stats.totalDistM)}-${Math.random().toString(36).slice(2,7)}`;
-      results.newRuns.push({ id, name: filename, stats });
+      results.newRuns.push({ id, name: filename, stats, sport });
       results.imported++;
     }catch(err){
       results.errors.push(`${filename}: ${err.message}`);
@@ -855,6 +934,7 @@ ${recentSummary}`;
   function renderAll(){
     const hasRuns = runs.length > 0;
     document.getElementById('mainTabs').classList.toggle('hidden', !hasRuns);
+    document.getElementById('jumpNav').classList.toggle('hidden', !hasRuns);
     document.getElementById('emptyState').classList.toggle('hidden', hasRuns);
     if(!hasRuns){
       document.getElementById('trendsPanel').classList.add('hidden');
@@ -866,15 +946,24 @@ ${recentSummary}`;
   }
 
   function renderTrendsPanel(){
-    document.getElementById('runCount').textContent = `${runs.length} run${runs.length!==1?'s':''}`;
+    const filtered = visibleRuns();
+    document.getElementById('runCount').textContent = `${filtered.length} of ${runs.length} run${runs.length!==1?'s':''} shown (${settings.sportFilter})`;
+
+    const descAll = [...filtered].sort((a,b)=>b.stats.startTime-a.stats.startTime);
+    const totalPages = Math.max(1, Math.ceil(descAll.length / PAGE_SIZE));
+    if(currentPage > totalPages) currentPage = totalPages;
+    if(currentPage < 1) currentPage = 1;
+    const pageItems = descAll.slice((currentPage-1)*PAGE_SIZE, currentPage*PAGE_SIZE);
+
     const tbody = document.querySelector('#runsTable tbody');
     tbody.innerHTML = '';
-    [...runs].sort((a,b)=>b.stats.startTime-a.stats.startTime).forEach(run=>{
+    pageItems.forEach(run=>{
       const s = run.stats;
       const tr = document.createElement('tr');
       tr.className = 'clickable';
       tr.innerHTML = `
         <td>${fmtDate(s.startTime)}</td>
+        <td>${run.sport || 'Running'}</td>
         <td>${fmtDist(s.totalDistM, settings.units)} ${unitLabel()}</td>
         <td>${fmtDur(s.totalDurationS)}</td>
         <td>${fmtPace(s.paceSecPerKm, settings.units)}</td>
@@ -886,7 +975,23 @@ ${recentSummary}`;
       tbody.appendChild(tr);
     });
 
-    const sorted = [...runs].sort((a,b)=>a.stats.startTime-b.stats.startTime);
+    const pag = document.getElementById('runsPagination');
+    if(descAll.length > PAGE_SIZE){
+      pag.innerHTML = `
+        <button class="ghost small" id="pagePrevBtn" ${currentPage<=1?'disabled':''}>← Prev</button>
+        <span class="sub">Page ${currentPage} of ${totalPages}</span>
+        <button class="ghost small" id="pageNextBtn" ${currentPage>=totalPages?'disabled':''}>Next →</button>
+      `;
+      const prevBtn = document.getElementById('pagePrevBtn');
+      const nextBtn = document.getElementById('pageNextBtn');
+      if(prevBtn) prevBtn.addEventListener('click', ()=>{ currentPage--; renderTrendsPanel(); });
+      if(nextBtn) nextBtn.addEventListener('click', ()=>{ currentPage++; renderTrendsPanel(); });
+    } else {
+      pag.innerHTML = '';
+    }
+
+    const inRange = filtered.filter(r=>withinRange(r.stats.startTime));
+    const sorted = [...inRange].sort((a,b)=>a.stats.startTime-b.stats.startTime);
     const labels = sorted.map(r=>fmtDate(r.stats.startTime));
 
     drawLineChart('paceChart', labels, sorted.map(r=>r.stats.paceSecPerKm/60), 'Pace (min/km equiv)', true);
@@ -917,14 +1022,16 @@ ${recentSummary}`;
   function drawLineChart(canvasId, labels, data, label, invertY){
     const ctx = document.getElementById(canvasId).getContext('2d');
     if(charts[canvasId]) charts[canvasId].destroy();
+    const range = percentileRange(data, 0.03, 0.97, 0.15);
+    const dense = data.length > 60;
     charts[canvasId] = new Chart(ctx, {
       type:'line',
-      data:{ labels, datasets:[{ label, data, borderColor:'#c9a24c', backgroundColor:'rgba(201,162,76,.15)', tension:.3, spanGaps:true, pointRadius:3 }]},
+      data:{ labels, datasets:[{ label, data, borderColor:'#c9a24c', backgroundColor:'rgba(201,162,76,.15)', tension:.3, spanGaps:true, pointRadius: dense?0:3, pointHoverRadius: dense?3:5 }]},
       options:{
         responsive:true, maintainAspectRatio:false,
         scales:{
-          y:{ reverse: !!invertY, ticks:{ color:'#a9895f', font:{family:"'Courier Prime', monospace"} }, grid:{ color:'#3a2418' } },
-          x:{ ticks:{ color:'#a9895f', font:{family:"'Courier Prime', monospace"} }, grid:{ color:'#3a2418' } }
+          y:{ reverse: !!invertY, min: range.min, max: range.max, ticks:{ color:'#a9895f', font:{family:"'Courier Prime', monospace"} }, grid:{ color:'#3a2418' } },
+          x:{ ticks:{ color:'#a9895f', font:{family:"'Courier Prime', monospace"}, autoSkip:true, maxTicksLimit:10, maxRotation:60 }, grid:{ color:'#3a2418' } }
         },
         plugins:{ legend:{ labels:{ color:'#e6d3a3', font:{family:"'IM Fell English', serif"} } } }
       }
@@ -940,7 +1047,7 @@ ${recentSummary}`;
         responsive:true, maintainAspectRatio:false,
         scales:{
           y:{ ticks:{ color:'#a9895f', font:{family:"'Courier Prime', monospace"} }, grid:{ color:'#3a2418' } },
-          x:{ ticks:{ color:'#a9895f', font:{family:"'Courier Prime', monospace"} }, grid:{ color:'#3a2418' } }
+          x:{ ticks:{ color:'#a9895f', font:{family:"'Courier Prime', monospace"}, autoSkip:true, maxTicksLimit:12, maxRotation:60 }, grid:{ color:'#3a2418' } }
         },
         plugins:{ legend:{ labels:{ color:'#e6d3a3', font:{family:"'IM Fell English', serif"} } } }
       }
@@ -1090,6 +1197,12 @@ ${recentSummary}`;
   document.getElementById('unitSelect').addEventListener('change', e=>{
     settings.units = e.target.value; saveSettings(); renderAll();
   });
+  document.getElementById('sportFilterSelect').addEventListener('change', e=>{
+    settings.sportFilter = e.target.value; currentPage = 1; saveSettings(); renderAll();
+  });
+  document.getElementById('trendRangeSelect').addEventListener('change', e=>{
+    settings.trendRange = e.target.value; saveSettings(); renderAll();
+  });
   document.getElementById('maxHrInput').addEventListener('input', e=>{
     settings.maxHr = e.target.value ? parseInt(e.target.value,10) : null;
     saveSettings(); renderAll();
@@ -1126,6 +1239,8 @@ ${recentSummary}`;
   // init
   loadState();
   document.getElementById('unitSelect').value = settings.units;
+  document.getElementById('sportFilterSelect').value = settings.sportFilter;
+  document.getElementById('trendRangeSelect').value = settings.trendRange;
   if(settings.maxHr) document.getElementById('maxHrInput').value = settings.maxHr;
   if(settings.apiKey) document.getElementById('apiKeyInput').value = settings.apiKey;
   renderAll();
