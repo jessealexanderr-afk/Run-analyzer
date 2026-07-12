@@ -193,7 +193,10 @@
     <a class="linklike" href="#recordsCard">Records</a> &middot;
     <a class="linklike" href="#predictorCard">Predictor</a> &middot;
     <a class="linklike" href="#gearCard">Gear</a> &middot;
-    <a class="linklike" href="#trendInsightsCard">Training signals</a>
+    <a class="linklike" href="#trendInsightsCard">Training signals</a> &middot;
+    <a class="linklike" href="#goalCard">Goal</a> &middot;
+    <a class="linklike" href="#heatmapCard">Consistency</a> &middot;
+    <a class="linklike" href="#syncCard">Sync</a>
   </div>
 
   <div id="trendsPanel" class="hidden">
@@ -202,19 +205,92 @@
         <h2>All runs</h2>
         <span class="sub" id="runCount"></span>
       </div>
-      <div id="bulkActionsBar" style="display:flex; align-items:center; gap:14px; margin:10px 0; font-size:13px;">
+      <div id="tableFiltersBar" style="display:flex; align-items:flex-end; gap:14px; margin:10px 0; flex-wrap:wrap;">
+        <div class="field">
+          <label>From</label>
+          <input type="date" id="filterDateFrom">
+        </div>
+        <div class="field">
+          <label>To</label>
+          <input type="date" id="filterDateTo">
+        </div>
+        <div class="field">
+          <label>Min dist</label>
+          <input type="number" id="filterMinDist" min="0" step="0.1" style="width:90px;">
+        </div>
+        <div class="field">
+          <label>Max dist</label>
+          <input type="number" id="filterMaxDist" min="0" step="0.1" style="width:90px;">
+        </div>
+        <a class="linklike" id="clearTableFiltersLink">Clear filters</a>
+      </div>
+      <div id="bulkActionsBar" style="display:flex; align-items:center; gap:14px; margin:10px 0; font-size:13px; flex-wrap:wrap;">
         <span class="sub" id="selectionSummary"></span>
         <a class="linklike" id="selectAllMatchingLink">Select all matching</a>
         <a class="linklike" id="clearSelectionLink">Clear selection</a>
         <button class="small" id="deleteSelectedBtn" style="display:none;">Delete selected</button>
+        <button class="small" id="compareSelectedBtn" style="display:none;">Compare selected</button>
       </div>
       <div style="overflow-x:auto;">
         <table id="runsTable">
-          <thead><tr><th style="width:30px;"><input type="checkbox" id="selectAllCheckbox"></th><th>Date</th><th>Type</th><th>Distance</th><th>Duration</th><th>Pace</th><th>Avg HR</th><th>Elev gain</th><th></th></tr></thead>
+          <thead><tr><th style="width:30px;"><input type="checkbox" id="selectAllCheckbox"></th><th>Date</th><th>Type</th><th>Workout</th><th>Distance</th><th>Duration</th><th>Pace</th><th>Avg HR</th><th>Elev gain</th><th></th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
       <div id="runsPagination" style="display:flex; align-items:center; gap:10px; margin-top:14px; justify-content:flex-end; font-size:13px;"></div>
+    </div>
+    <div class="card" id="goalCard">
+      <div class="run-title"><h2>Goal</h2></div>
+      <div class="settings" style="margin-top:10px;">
+        <div class="field">
+          <label>Period</label>
+          <select id="goalPeriodSelect">
+            <option value="week">This week</option>
+            <option value="month">This month</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Metric</label>
+          <select id="goalMetricSelect">
+            <option value="distance">Distance</option>
+            <option value="runs">Run count</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Target</label>
+          <input type="number" id="goalTargetInput" min="0" step="1" style="width:100px;" placeholder="e.g. 20">
+        </div>
+      </div>
+      <div id="goalProgressBody" style="margin-top:14px;"></div>
+    </div>
+    <div class="card" id="heatmapCard">
+      <div class="run-title"><h2>Consistency</h2></div>
+      <div class="sub" style="margin:4px 0 10px;">Past year, daily activity</div>
+      <div id="heatmapBody" style="overflow-x:auto;"></div>
+    </div>
+    <div class="card" id="syncCard">
+      <div class="run-title"><h2>Sync across devices</h2></div>
+      <div class="settings" style="margin-top:10px;">
+        <div class="field" style="min-width:260px;">
+          <label>GitHub personal access token</label>
+          <input type="password" id="githubTokenInput" placeholder="ghp_...">
+        </div>
+        <div class="field" style="min-width:220px;">
+          <label>Gist ID (leave blank to create one)</label>
+          <input type="text" id="gistIdInput" placeholder="auto-filled after first sync up">
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button class="ghost small" id="syncUpBtn">Sync up</button>
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button class="ghost small" id="syncDownBtn">Sync down</button>
+        </div>
+      </div>
+      <div class="sub" id="syncStatus" style="margin-top:10px; font-size:12px;">
+        Create a token at github.com/settings/tokens with the "gist" scope. Your token is stored only in this browser. "Sync up" pushes your current runs/gear to a private Gist; "Sync down" pulls and merges from it (existing runs are matched by date+distance, so it's safe to run either direction from multiple devices).
+      </div>
     </div>
     <div class="two-col" id="chartsSection">
       <div class="card">
@@ -273,6 +349,7 @@
   </div>
 
   <div id="detailPanel" class="hidden"></div>
+  <div id="comparePanel" class="hidden"></div>
 
   <div id="emptyState" class="empty">No runs loaded yet. Upload a GPX or TCX file above to get started.</div>
 </div>
@@ -282,13 +359,18 @@
   const STORAGE_KEY = 'runAnalyzer.runs.v1';
   const SETTINGS_KEY = 'runAnalyzer.settings.v1';
   let runs = [];
-  let settings = { units: 'mi', maxHr: null, apiKey: null, sportFilter: 'Running', trendRange: '6m' };
+  let settings = {
+    units: 'mi', maxHr: null, apiKey: null, sportFilter: 'Running', trendRange: '6m',
+    goal: { period: 'week', metric: 'distance', target: null },
+    githubToken: null, gistId: null
+  };
   let activeRunId = null;
   let charts = {};
   let currentPage = 1;
   const PAGE_SIZE = 25;
   let routeMapInstance = null;
   let selectedRunIds = new Set();
+  let tableFilters = { dateFrom: null, dateTo: null, minDist: null, maxDist: null };
 
   // ---------- persistence ----------
   function loadState(){
@@ -750,6 +832,92 @@
     if(settings.trendRange === 'all') return true;
     const days = { '3m': 90, '6m': 182, '1y': 365 }[settings.trendRange] || 182;
     return ts >= Date.now() - days*86400000;
+  }
+  function applyTableFilters(list){
+    return list.filter(r=>{
+      const t = r.stats.startTime;
+      if(tableFilters.dateFrom!=null && t < tableFilters.dateFrom) return false;
+      if(tableFilters.dateTo!=null && t > tableFilters.dateTo) return false;
+      const distDisplay = settings.units==='mi' ? r.stats.totalDistM/1609.34 : r.stats.totalDistM/1000;
+      if(tableFilters.minDist!=null && distDisplay < tableFilters.minDist) return false;
+      if(tableFilters.maxDist!=null && distDisplay > tableFilters.maxDist) return false;
+      return true;
+    });
+  }
+
+  // ---------- workout type classification ----------
+  function classifyWorkout(run, allRuns){
+    const s = run.stats;
+    const sport = run.sport || 'Running';
+    const history = allRuns
+      .filter(r => r.id !== run.id && (r.sport||'Running') === sport && r.stats.startTime < s.startTime)
+      .sort((a,b)=>b.stats.startTime-a.stats.startTime)
+      .slice(0, 10);
+    if(history.length < 3) return null; // not enough history to compare against
+    const avgDist = history.reduce((a,r)=>a+r.stats.totalDistM,0) / history.length;
+    const paceValues = history.map(r=>r.stats.paceSecPerKm).filter(v=>v!=null);
+    const avgPace = paceValues.length ? paceValues.reduce((a,v)=>a+v,0)/paceValues.length : null;
+
+    if(avgDist > 0 && s.totalDistM >= avgDist * 1.3 && s.totalDistM >= (settings.units==='mi' ? 8047 : 5000)){
+      return 'Long';
+    }
+    if(s.paceStdDev != null && s.paceSecPerKm){
+      const cv = s.paceStdDev / s.paceSecPerKm;
+      if(cv > 0.12) return 'Interval';
+    }
+    if(avgPace && s.paceSecPerKm < avgPace * 0.93){
+      return 'Tempo';
+    }
+    return 'Easy';
+  }
+
+  // ---------- goal tracking ----------
+  function periodStart(period){
+    const d = new Date();
+    if(period === 'month'){
+      return new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+    }
+    // week: Monday 00:00
+    const day = d.getDay(); // 0=Sun..6=Sat
+    const diffToMonday = (day === 0 ? 6 : day - 1);
+    const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - diffToMonday);
+    return monday.getTime();
+  }
+  function computeGoalProgress(){
+    const goal = settings.goal || { period:'week', metric:'distance', target:null };
+    const start = periodStart(goal.period);
+    const inPeriod = visibleRuns().filter(r=>r.stats.startTime >= start);
+    let current;
+    if(goal.metric === 'runs'){
+      current = inPeriod.length;
+    } else {
+      const totalM = inPeriod.reduce((a,r)=>a+r.stats.totalDistM,0);
+      current = settings.units==='mi' ? totalM/1609.34 : totalM/1000;
+    }
+    return { current, target: goal.target, period: goal.period, metric: goal.metric };
+  }
+
+  // ---------- calendar heatmap ----------
+  function buildHeatmapDays(){
+    const totals = {}; // 'YYYY-MM-DD' -> distance meters
+    visibleRuns().forEach(r=>{
+      const d = new Date(r.stats.startTime);
+      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+      totals[key] = (totals[key]||0) + r.stats.totalDistM;
+    });
+    const days = [];
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    // align end to the coming Saturday so the grid ends on a full week
+    const endDay = today.getDay();
+    const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() + (6 - endDay));
+    const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - (53*7 - 1));
+    for(let i=0;i<53*7;i++){
+      const d = new Date(start.getFullYear(), start.getMonth(), start.getDate()+i);
+      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+      days.push({ date: d, distM: totals[key] || 0 });
+    }
+    return days;
   }
   function percentileRange(values, lowP, highP, padFrac){
     const v = values.filter(x=>x!=null && isFinite(x)).sort((a,b)=>a-b);
@@ -1215,19 +1383,7 @@ ${recentSummary}`;
     URL.revokeObjectURL(url);
   }
 
-  async function importData(file){
-    let payload;
-    try{
-      const text = await readFileAsText(file);
-      payload = JSON.parse(text);
-    }catch(err){
-      alert(`Couldn't read that file: ${err.message}`);
-      return;
-    }
-    if(!payload || !Array.isArray(payload.runs)){
-      alert("That file doesn't look like a Run Analyzer backup.");
-      return;
-    }
+  function mergePayload(payload){
     const results = { newRuns: [], imported: 0, duplicates: 0, skipped: [], errors: [] };
     payload.runs.forEach(r=>{
       if(!r || !r.stats || r.stats.startTime==null || r.stats.totalDistM==null){
@@ -1252,12 +1408,103 @@ ${recentSummary}`;
       });
       saveGear();
     }
+    return results;
+  }
+
+  async function importData(file){
+    let payload;
+    try{
+      const text = await readFileAsText(file);
+      payload = JSON.parse(text);
+    }catch(err){
+      alert(`Couldn't read that file: ${err.message}`);
+      return;
+    }
+    if(!payload || !Array.isArray(payload.runs)){
+      alert("That file doesn't look like a Run Analyzer backup.");
+      return;
+    }
+    const results = mergePayload(payload);
     renderAll();
     const parts = [];
     if(results.imported) parts.push(`Imported ${results.imported} run${results.imported!==1?'s':''}.`);
     if(results.duplicates) parts.push(`Skipped ${results.duplicates} duplicate${results.duplicates!==1?'s':''} already in your log.`);
     if(results.skipped.length) parts.push(`Ignored ${results.skipped.length} malformed entr${results.skipped.length!==1?'ies':'y'}.`);
     alert(parts.length ? parts.join('\n') : 'No new runs found in that backup file.');
+  }
+
+  // ---------- GitHub Gist sync ----------
+  const GIST_FILENAME = 'run-analyzer-data.json';
+  async function syncUp(){
+    const status = document.getElementById('syncStatus');
+    if(!settings.githubToken){ alert('Add a GitHub personal access token (with "gist" scope) first.'); return; }
+    const payload = { exportedAt: new Date().toISOString(), runs, gear };
+    const body = {
+      description: 'Run Analyzer data backup',
+      public: false,
+      files: { [GIST_FILENAME]: { content: JSON.stringify(payload) } }
+    };
+    try{
+      status.textContent = 'Syncing up…';
+      let res, url;
+      if(settings.gistId){
+        url = `https://api.github.com/gists/${settings.gistId}`;
+        res = await fetch(url, {
+          method: 'PATCH',
+          headers: { 'Authorization': `token ${settings.githubToken}`, 'Accept': 'application/vnd.github+json' },
+          body: JSON.stringify(body)
+        });
+      } else {
+        url = 'https://api.github.com/gists';
+        res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Authorization': `token ${settings.githubToken}`, 'Accept': 'application/vnd.github+json' },
+          body: JSON.stringify(body)
+        });
+      }
+      if(!res.ok){
+        const errText = await res.text();
+        throw new Error(`GitHub API returned ${res.status}: ${errText.slice(0,200)}`);
+      }
+      const json = await res.json();
+      if(!settings.gistId){
+        settings.gistId = json.id;
+        document.getElementById('gistIdInput').value = json.id;
+        saveSettings();
+      }
+      status.textContent = `Synced up successfully at ${new Date().toLocaleTimeString()}.`;
+    }catch(err){
+      status.textContent = `Sync up failed: ${err.message}`;
+    }
+  }
+
+  async function syncDown(){
+    const status = document.getElementById('syncStatus');
+    if(!settings.githubToken){ alert('Add a GitHub personal access token (with "gist" scope) first.'); return; }
+    if(!settings.gistId){ alert('Add the Gist ID to pull from (or run Sync up first to create one).'); return; }
+    try{
+      status.textContent = 'Syncing down…';
+      const res = await fetch(`https://api.github.com/gists/${settings.gistId}`, {
+        headers: { 'Authorization': `token ${settings.githubToken}`, 'Accept': 'application/vnd.github+json' }
+      });
+      if(!res.ok){
+        const errText = await res.text();
+        throw new Error(`GitHub API returned ${res.status}: ${errText.slice(0,200)}`);
+      }
+      const json = await res.json();
+      const file = json.files && json.files[GIST_FILENAME];
+      if(!file){ throw new Error(`Gist doesn't contain a ${GIST_FILENAME} file.`); }
+      const payload = JSON.parse(file.content);
+      if(!payload || !Array.isArray(payload.runs)) throw new Error('Gist content is not a valid Run Analyzer backup.');
+      const results = mergePayload(payload);
+      renderAll();
+      const parts = [];
+      if(results.imported) parts.push(`${results.imported} new run${results.imported!==1?'s':''}`);
+      if(results.duplicates) parts.push(`${results.duplicates} already present`);
+      status.textContent = `Synced down at ${new Date().toLocaleTimeString()}${parts.length?' — '+parts.join(', '):''}.`;
+    }catch(err){
+      status.textContent = `Sync down failed: ${err.message}`;
+    }
   }
 
   // ---------- rendering ----------
@@ -1279,7 +1526,7 @@ ${recentSummary}`;
     const filtered = visibleRuns();
     document.getElementById('runCount').textContent = `${filtered.length} of ${runs.length} run${runs.length!==1?'s':''} shown (${settings.sportFilter})`;
 
-    const descAll = [...filtered].sort((a,b)=>b.stats.startTime-a.stats.startTime);
+    const descAll = applyTableFilters([...filtered]).sort((a,b)=>b.stats.startTime-a.stats.startTime);
     const totalPages = Math.max(1, Math.ceil(descAll.length / PAGE_SIZE));
     if(currentPage > totalPages) currentPage = totalPages;
     if(currentPage < 1) currentPage = 1;
@@ -1293,12 +1540,14 @@ ${recentSummary}`;
     tbody.innerHTML = '';
     pageItems.forEach(run=>{
       const s = run.stats;
+      const workoutType = classifyWorkout(run, runs);
       const tr = document.createElement('tr');
       tr.className = 'clickable';
       tr.innerHTML = `
         <td><input type="checkbox" class="row-select" data-id="${run.id}" ${selectedRunIds.has(run.id)?'checked':''}></td>
         <td>${fmtDate(s.startTime)}</td>
         <td>${run.sport || 'Running'}</td>
+        <td>${workoutType ? `<span class="badge" style="background:rgba(201,162,76,.14); color:var(--accent);">${workoutType}</span>` : '—'}</td>
         <td>${fmtDist(s.totalDistM, settings.units)} ${unitLabel()}</td>
         <td>${fmtDur(s.totalDurationS)}</td>
         <td>${fmtPace(s.paceSecPerKm, settings.units)}</td>
@@ -1358,6 +1607,8 @@ ${recentSummary}`;
     renderRecordsTable();
     renderPredictor();
     renderGearTable();
+    renderGoalCard();
+    renderHeatmap();
 
     document.getElementById('trendInsights').innerHTML = generateTrendInsights().map(i=>
       `<li><span class="dot ${i.level}"></span><span>${i.text}</span></li>`
@@ -1366,13 +1617,56 @@ ${recentSummary}`;
     document.getElementById('trendsPanel').classList.remove('hidden');
   }
 
+  function renderGoalCard(){
+    const body = document.getElementById('goalProgressBody');
+    if(!body) return;
+    const { current, target, period, metric } = computeGoalProgress();
+    if(!target){
+      body.innerHTML = `<span class="sub" style="font-size:13px;">Set a target above to track progress.</span>`;
+      return;
+    }
+    const pct = Math.min(100, (current/target)*100);
+    const metricLabel = metric === 'runs' ? 'runs' : unitLabel();
+    const periodLabel = period === 'month' ? 'this month' : 'this week';
+    const currentDisp = metric === 'runs' ? current : current.toFixed(1);
+    const over = current >= target;
+    body.innerHTML = `
+      <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:6px;">
+        <span>${currentDisp} / ${target} ${metricLabel} ${periodLabel}</span>
+        <span style="color:${over?'var(--good)':'var(--accent)'};">${pct.toFixed(0)}%</span>
+      </div>
+      <div style="background:var(--panel2); height:10px; overflow:hidden; border:1px solid var(--border);">
+        <div style="width:${pct}%; height:100%; background:${over?'var(--good)':'var(--accent)'};"></div>
+      </div>
+    `;
+  }
+
+  function renderHeatmap(){
+    const body = document.getElementById('heatmapBody');
+    if(!body) return;
+    const days = buildHeatmapDays();
+    const maxDist = Math.max(1, ...days.map(d=>d.distM));
+    const cells = days.map(d=>{
+      let level = 0;
+      if(d.distM > 0) level = Math.min(4, Math.max(1, Math.ceil((d.distM/maxDist)*4)));
+      const bg = level === 0 ? 'var(--panel2)' : `rgba(201,162,76,${0.2 + level*0.2})`;
+      const distDisp = settings.units==='mi' ? (d.distM/1609.34).toFixed(1)+' mi' : (d.distM/1000).toFixed(1)+' km';
+      const label = d.date.toLocaleDateString(undefined,{month:'short', day:'numeric', year:'numeric'});
+      const title = d.distM > 0 ? `${label}: ${distDisp}` : `${label}: no activity`;
+      return `<div title="${title}" style="width:11px; height:11px; background:${bg}; border:1px solid var(--border);"></div>`;
+    }).join('');
+    body.innerHTML = `<div style="display:grid; grid-template-rows:repeat(7,12px); grid-auto-flow:column; grid-auto-columns:12px; gap:1px; width:max-content;">${cells}</div>`;
+  }
+
   function updateBulkActionsBar(pageItems){
     const items = pageItems || Array.from(document.querySelectorAll('#runsTable tbody .row-select')).map(cb=>({id: cb.getAttribute('data-id')}));
     const n = selectedRunIds.size;
     const summary = document.getElementById('selectionSummary');
     const delBtn = document.getElementById('deleteSelectedBtn');
+    const cmpBtn = document.getElementById('compareSelectedBtn');
     summary.textContent = n ? `${n} selected` : '';
     delBtn.style.display = n ? 'inline-block' : 'none';
+    if(cmpBtn) cmpBtn.style.display = n === 2 ? 'inline-block' : 'none';
 
     const selectAllCb = document.getElementById('selectAllCheckbox');
     const pageIds = items.map(r=> r.id !== undefined ? r.id : r);
@@ -1589,6 +1883,14 @@ ${recentSummary}`;
           </table>
         </div>` : `<div class="sub" style="font-size:13px;">Split data not stored for archived runs.</div>`}
       </div>
+
+      <div class="card">
+        <div class="run-title">
+          <h2>Notes</h2>
+          <button class="ghost small" id="saveNoteBtn">Save</button>
+        </div>
+        <textarea id="runNoteInput" placeholder="How did it feel? Weather, injuries, anything worth remembering..." style="width:100%; min-height:80px; margin-top:10px; background:var(--panel2); border:1px solid var(--border); color:var(--text); font-family:inherit; font-size:14px; padding:10px; resize:vertical;">${run.notes ? run.notes.replace(/</g,'&lt;') : ''}</textarea>
+      </div>
     `;
     panel.classList.remove('hidden');
     if(s.route && s.route.length){
@@ -1600,6 +1902,12 @@ ${recentSummary}`;
       saveRuns();
     });
     document.getElementById('aiNoteBtn').addEventListener('click', ()=>{ generateAiNote(run); });
+    document.getElementById('saveNoteBtn').addEventListener('click', ()=>{
+      run.notes = document.getElementById('runNoteInput').value;
+      saveRuns();
+      document.getElementById('saveNoteBtn').textContent = 'Saved';
+      setTimeout(()=>{ const b = document.getElementById('saveNoteBtn'); if(b) b.textContent = 'Save'; }, 1500);
+    });
     document.getElementById('backToTrendsBtn').addEventListener('click', ()=>{
       document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
       document.querySelector('.tab[data-tab="trends"]').classList.add('active');
@@ -1615,6 +1923,59 @@ ${recentSummary}`;
       document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
       document.querySelector('.tab[data-tab="trends"]').classList.add('active');
       renderAll();
+    });
+  }
+
+  // ---------- run comparison ----------
+  function openCompare(idA, idB){
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    document.getElementById('trendsPanel').classList.add('hidden');
+    document.getElementById('detailPanel').classList.add('hidden');
+    renderComparePanel(idA, idB);
+  }
+
+  function renderComparePanel(idA, idB){
+    const panel = document.getElementById('comparePanel');
+    const a = runs.find(r=>r.id===idA);
+    const b = runs.find(r=>r.id===idB);
+    if(!a || !b){ panel.classList.add('hidden'); return; }
+    const sa = a.stats, sb = b.stats;
+    const rows = [
+      ['Date', r=>fmtDate(r.stats.startTime)],
+      ['Type', r=>r.sport||'Running'],
+      ['Distance', r=>`${fmtDist(r.stats.totalDistM, settings.units)} ${unitLabel()}`],
+      ['Duration', r=>fmtDur(r.stats.totalDurationS)],
+      ['Pace', r=>fmtPace(r.stats.paceSecPerKm, settings.units)],
+      ['Grade-adj pace', r=>r.stats.gapSecPerKm ? fmtPace(r.stats.gapSecPerKm, settings.units) : '—'],
+      ['Avg HR', r=>r.stats.avgHr ? Math.round(r.stats.avgHr)+' bpm' : '—'],
+      ['Max HR', r=>r.stats.maxHr ? Math.round(r.stats.maxHr)+' bpm' : '—'],
+      ['Elev gain', r=>elevUnit(r.stats.elevGainM)],
+      ['Elev loss', r=>elevUnit(r.stats.elevLossM)],
+      ['Cadence', r=>r.stats.avgCad ? Math.round(r.stats.avgCad)+' spm' : '—'],
+      ['Decoupling', r=>r.stats.decoupling!=null ? r.stats.decoupling.toFixed(1)+'%' : '—'],
+      ['Pace variability', r=>r.stats.paceStdDev!=null ? '±'+Math.round(r.stats.paceStdDev)+'s/km' : '—'],
+    ];
+    panel.innerHTML = `
+      <div class="card">
+        <div class="run-title">
+          <h2>Compare runs</h2>
+          <button class="ghost small" id="backFromCompareBtn">← Back to trends</button>
+        </div>
+        <div style="overflow-x:auto; margin-top:10px;">
+          <table>
+            <thead><tr><th></th><th>${fmtDate(sa.startTime)}</th><th>${fmtDate(sb.startTime)}</th></tr></thead>
+            <tbody>
+              ${rows.map(([label,fn])=>`<tr><td>${label}</td><td>${fn(a)}</td><td>${fn(b)}</td></tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+    panel.classList.remove('hidden');
+    document.getElementById('backFromCompareBtn').addEventListener('click', ()=>{
+      panel.classList.add('hidden');
+      document.querySelector('.tab[data-tab="trends"]').classList.add('active');
+      document.getElementById('trendsPanel').classList.remove('hidden');
     });
   }
 
@@ -1685,6 +2046,61 @@ ${recentSummary}`;
     saveRuns();
     renderAll();
   });
+  document.getElementById('compareSelectedBtn').addEventListener('click', ()=>{
+    if(selectedRunIds.size !== 2) return;
+    const ids = Array.from(selectedRunIds);
+    openCompare(ids[0], ids[1]);
+  });
+
+  // ---------- table filter wiring ----------
+  document.getElementById('filterDateFrom').addEventListener('change', e=>{
+    tableFilters.dateFrom = e.target.value ? new Date(e.target.value).getTime() : null;
+    currentPage = 1; renderTrendsPanel();
+  });
+  document.getElementById('filterDateTo').addEventListener('change', e=>{
+    tableFilters.dateTo = e.target.value ? new Date(e.target.value).getTime() + 86400000 - 1 : null;
+    currentPage = 1; renderTrendsPanel();
+  });
+  document.getElementById('filterMinDist').addEventListener('input', e=>{
+    tableFilters.minDist = e.target.value !== '' ? parseFloat(e.target.value) : null;
+    currentPage = 1; renderTrendsPanel();
+  });
+  document.getElementById('filterMaxDist').addEventListener('input', e=>{
+    tableFilters.maxDist = e.target.value !== '' ? parseFloat(e.target.value) : null;
+    currentPage = 1; renderTrendsPanel();
+  });
+  document.getElementById('clearTableFiltersLink').addEventListener('click', ()=>{
+    tableFilters = { dateFrom:null, dateTo:null, minDist:null, maxDist:null };
+    document.getElementById('filterDateFrom').value = '';
+    document.getElementById('filterDateTo').value = '';
+    document.getElementById('filterMinDist').value = '';
+    document.getElementById('filterMaxDist').value = '';
+    currentPage = 1; renderTrendsPanel();
+  });
+
+  // ---------- goal wiring ----------
+  document.getElementById('goalPeriodSelect').addEventListener('change', e=>{
+    settings.goal.period = e.target.value; saveSettings(); renderGoalCard();
+  });
+  document.getElementById('goalMetricSelect').addEventListener('change', e=>{
+    settings.goal.metric = e.target.value; saveSettings(); renderGoalCard();
+  });
+  document.getElementById('goalTargetInput').addEventListener('input', e=>{
+    settings.goal.target = e.target.value !== '' ? parseFloat(e.target.value) : null;
+    saveSettings(); renderGoalCard();
+  });
+
+  // ---------- gist sync wiring ----------
+  document.getElementById('githubTokenInput').addEventListener('input', e=>{
+    settings.githubToken = e.target.value ? e.target.value.trim() : null;
+    saveSettings();
+  });
+  document.getElementById('gistIdInput').addEventListener('input', e=>{
+    settings.gistId = e.target.value ? e.target.value.trim() : null;
+    saveSettings();
+  });
+  document.getElementById('syncUpBtn').addEventListener('click', syncUp);
+  document.getElementById('syncDownBtn').addEventListener('click', syncDown);
   document.getElementById('exportDataBtn').addEventListener('click', exportData);
   document.getElementById('importDataBtn').addEventListener('click', ()=>{
     document.getElementById('importDataInput').click();
@@ -1706,6 +2122,7 @@ ${recentSummary}`;
     tab.addEventListener('click', ()=>{
       document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
       tab.classList.add('active');
+      document.getElementById('comparePanel').classList.add('hidden');
       if(tab.dataset.tab==='trends'){
         document.getElementById('detailPanel').classList.add('hidden');
         document.getElementById('trendsPanel').classList.remove('hidden');
@@ -1729,6 +2146,12 @@ ${recentSummary}`;
   document.getElementById('trendRangeSelect').value = settings.trendRange;
   if(settings.maxHr) document.getElementById('maxHrInput').value = settings.maxHr;
   if(settings.apiKey) document.getElementById('apiKeyInput').value = settings.apiKey;
+  if(!settings.goal) settings.goal = { period:'week', metric:'distance', target:null };
+  document.getElementById('goalPeriodSelect').value = settings.goal.period || 'week';
+  document.getElementById('goalMetricSelect').value = settings.goal.metric || 'distance';
+  if(settings.goal.target) document.getElementById('goalTargetInput').value = settings.goal.target;
+  if(settings.githubToken) document.getElementById('githubTokenInput').value = settings.githubToken;
+  if(settings.gistId) document.getElementById('gistIdInput').value = settings.gistId;
   renderAll();
 })();
 </script>
